@@ -12,16 +12,13 @@ jobs:
   # Publish a package to private PyPI
   publish-package:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: '3.11'
     steps:
       - name: Checkout git repository
         uses: actions/checkout@v2
       - name: Set up Python
         uses: actions/setup-python@v2
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: '3.10'
 
       - name: Authenticate to gcloud
         uses: 'google-github-actions/auth@v1'
