@@ -5,8 +5,9 @@ on:
     branches:
       - main
       - prerelease*
+      - "*"
     tags:
-      - '*'
+      - "*"
 
 jobs:
   # Publish a package to private PyPI
