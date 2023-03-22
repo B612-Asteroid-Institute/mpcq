@@ -36,16 +36,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install keyring keyrings.google-artifactregistry-auth
 
-      - name: Configure pip to use Google Artifact Registry
+      - name: Install dependencies using Google Artifact Registry
         run: |
-          cat << EOF > ~/.config/pip/pip.conf
-          [global]
-          index-url = https://us-west1-python.pkg.dev/moeyens-thor-dev/ai-pypi/
-          EOF
-
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
+          pip install --index-url=https://us-west1-python.pkg.dev/moeyens-thor-dev/ai-pypi/ -r requirements.txt
 
       - name: Build and publish package
         run: |
