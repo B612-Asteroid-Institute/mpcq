@@ -1,7 +1,7 @@
 from importlib.metadata import PackageNotFoundError, version
 
 try:
-    __version__ = version("package-name")
+    __version__ = version("mpcq")
 except PackageNotFoundError:
     # package is not installed
-    pass
+    __version__ = "unknown"
