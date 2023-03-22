@@ -1,0 +1,48 @@
+name: Publish package
+
+on:
+  push:
+    branches:
+      - main
+      - "prerelease**"
+    tags:
+      - "*"
+
+jobs:
+  # Publish a package to private PyPI
+  publish-package:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.10', '3.11']
+    steps:
+      - name: Checkout git repository
+        uses: actions/checkout@v2
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Authenticate to gcloud
+        uses: 'google-github-actions/auth@v1'
+        with:
+          credentials_json: '${{ secrets.GCP_CREDENTIALS }}'
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+
+      - name: Verify gcloud credentials
+        run: gcloud auth list
+
+      - name: Install auth dependencies for using Google Artifact Registry
+        run: |
+          python -m pip install --upgrade pip
+          pip install keyring keyrings.google-artifactregistry-auth
+
+      - name: Install twine and wheel
+        run: pip install twine wheel
+
+      - name: Build and publish package
+        run: |
+          python setup.py sdist bdist_wheel
+          twine upload --repository-url https://us-west1-python.pkg.dev/moeyens-thor-dev/ai-pypi-internal dist/*
