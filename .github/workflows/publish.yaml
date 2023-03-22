@@ -12,8 +12,9 @@ jobs:
   # Publish a package to private PyPI
   publish-package:
     runs-on: ubuntu-latest
-    matrix:
-      python-version: ['3.9', '3.10', '3.11']
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.10', '3.11']
     steps:
       - name: Checkout git repository
         uses: actions/checkout@v2
