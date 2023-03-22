@@ -12,13 +12,15 @@ jobs:
   # Publish a package to private PyPI
   publish-package:
     runs-on: ubuntu-latest
+    matrix:
+      python-version: ['3.9', '3.10', '3.11']
     steps:
       - name: Checkout git repository
         uses: actions/checkout@v2
       - name: Set up Python
         uses: actions/setup-python@v2
         with:
-          python-version: '3.10'
+          python-version: ${{ matrix.python-version }}
 
       - name: Authenticate to gcloud
         uses: 'google-github-actions/auth@v1'
@@ -43,3 +45,4 @@ jobs:
         run: |
           python setup.py sdist bdist_wheel
           twine upload --repository-url https://us-west1-python.pkg.dev/moeyens-thor-dev/ai-pypi-internal dist/*
+
