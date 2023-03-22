@@ -38,9 +38,9 @@ jobs:
 
       - name: Install dependencies using Google Artifact Registry
         run: |
-          pip install --index-url=https://us-west1-python.pkg.dev/moeyens-thor-dev/ai-pypi/ -r requirements.txt
+          pip install --index-url=https://us-west1-python.pkg.dev/moeyens-thor-dev/ai-pypi/simple -r requirements.txt
 
       - name: Build and publish package
         run: |
           python setup.py sdist bdist_wheel
-          python -m twine upload --repository-url https://us-west1-python.pkg.dev/moeyens-thor-dev/ai-pypi/ dist/*
+          python -m twine upload --repository-url https://us-west1-python.pkg.dev/moeyens-thor-dev/ai-pypi-internal/simple dist/*
