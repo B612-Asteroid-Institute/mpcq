@@ -1,1 +1,7 @@
-__version__ = "0.1.dev4+gdfb5d6c.d20230322"
+from importlib.metadata import version, PackageNotFoundError
+
+try:
+    __version__ = version("package-name")
+except PackageNotFoundError:
+    # package is not installed
+    pass
