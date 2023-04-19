@@ -80,6 +80,17 @@ class MPCObservationsClient:
 
     @staticmethod
     def _parse_obs_sbn_row(row: sq.engine.Row) -> Observation:
+
+        if row.created_at is None:
+            created_at = None
+        else:
+            created_at = astropy.time.Time(row.created_at, scale="utc")
+
+        if row.updated_at is None:
+            updated_at = None
+        else:
+            updated_at = astropy.time.Time(row.updated_at, scale="utc")
+
         return Observation(
             mpc_id=row.id,
             status=ObservationStatus._from_db_value(row.status),
@@ -94,8 +105,8 @@ class MPCObservationsClient:
             dec_rms=row.rmsdec,
             mag_rms=row.rmsmag,
             submission_id=row.submission_id,
-            created_at=astropy.time.Time(row.created_at, scale="utc"),
-            updated_at=astropy.time.Time(row.updated_at, scale="utc"),
+            created_at=created_at,
+            updated_at=updated_at,
         )
 
     @staticmethod

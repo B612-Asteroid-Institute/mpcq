@@ -27,8 +27,10 @@ def observations_to_dataframe(observations: List[Observation]) -> pd.DataFrame:
     for row in data:
         row["status"] = row["status"].name
         row["timestamp"] = row["timestamp"].datetime
-        row["created_at"] = row["created_at"].datetime
-        row["updated_at"] = row["updated_at"].datetime
+        if row["created_at"] is not None:
+            row["created_at"] = row["created_at"].datetime
+        if row["updated_at"] is not None:
+            row["updated_at"] = row["updated_at"].datetime
 
     return pd.DataFrame(data)
 

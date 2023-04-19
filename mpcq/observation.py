@@ -71,7 +71,8 @@ class Observation:
     submission_id: str
 
     # Time when the observation was first submitted to MPC and ingested
-    created_at: astropy.time.Time
-    # Time when the last update to this observations was made (typically updated as the
-    # observation is processed through the MPC's pipeline)
-    updated_at: astropy.time.Time
+    # Apparently this can be None... maybe for older observations???
+    created_at: Optional[astropy.time.Time]
+    # Time when the last update to this observations was made, None if
+    # never updated beyond initial creation
+    updated_at: Optional[astropy.time.Time]
