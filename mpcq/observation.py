@@ -65,3 +65,13 @@ class Observation:
     mag: Optional[decimal.Decimal]
     # Error in the magnitude estimate.
     mag_rms: Optional[decimal.Decimal]
+
+    # Submission Properties
+    # MPC-assigned ID for the submission
+    submission_id: str
+
+    # Time when the observation was first submitted to MPC and ingested
+    created_at: astropy.time.Time
+    # Time when the last update to this observations was made (typically updated as the
+    # observation is processed through the MPC's pipeline)
+    updated_at: astropy.time.Time
