@@ -35,7 +35,7 @@ def test_observations_to_dataframe():
             "obscode": ["I41"],
             "filter_band": ["R"],
             "unpacked_provisional_designation": ["2022 AJ2"],
-            "timestamp": [Time("2021-01-01T00:00:00.000", format="isot")],
+            "timestamp": [Time("2021-01-01T00:00:00.000", format="isot").datetime],
             "ra": [decimal.Decimal(1.0)],
             "ra_rms": [decimal.Decimal(0.001)],
             "dec": [decimal.Decimal(-10.0)],
@@ -43,8 +43,8 @@ def test_observations_to_dataframe():
             "mag": [decimal.Decimal(20.0)],
             "mag_rms": [decimal.Decimal(0.1)],
             "submission_id": ["2020-10-23T06:39:01.200_0000DvZH"],
-            "created_at": [Time("2020-10-23T06:39:01.200", format="isot")],
-            "updated_at": [Time("2020-10-23T06:39:01.200", format="isot")],
+            "created_at": [Time("2020-10-23T06:39:01.200", format="isot").datetime],
+            "updated_at": [Time("2020-10-23T06:39:01.200", format="isot").datetime],
         }
     )
 
@@ -62,7 +62,7 @@ def test_submissions_to_dataframe():
         {
             "id": ["2020-10-23T06:39:01.200_0000DvZH"],
             "num_observations": [5],
-            "timestamp": [Time("2020-10-23T06:39:01.200", format="isot")],
+            "timestamp": [Time("2020-10-23T06:39:01.200", format="isot").datetime],
         }
     )
 

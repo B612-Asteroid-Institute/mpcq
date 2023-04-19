@@ -23,8 +23,12 @@ def observations_to_dataframe(observations: List[Observation]) -> pd.DataFrame:
     data = [asdict(obs) for obs in observations]
 
     # Convert ObservationStatus objects to strings.
+    # Convert Time objects to datetime objects.
     for row in data:
         row["status"] = row["status"].name
+        row["timestamp"] = row["timestamp"].datetime
+        row["created_at"] = row["created_at"].datetime
+        row["updated_at"] = row["updated_at"].datetime
 
     return pd.DataFrame(data)
 
@@ -43,4 +47,9 @@ def submissions_to_dataframe(submissions: List[Submission]) -> pd.DataFrame:
     submissions : `~pd.DataFrame`
     """
     data = [asdict(sub) for sub in submissions]
+
+    # Convert Time objects to datetime objects.
+    for row in data:
+        row["timestamp"] = row["timestamp"].datetime
+
     return pd.DataFrame(data)
