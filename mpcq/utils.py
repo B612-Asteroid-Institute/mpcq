@@ -4,6 +4,7 @@ from typing import List
 import pandas as pd
 
 from .observation import Observation
+from .submission import Submission
 
 
 def observations_to_dataframe(observations: List[Observation]) -> pd.DataFrame:
@@ -25,4 +26,21 @@ def observations_to_dataframe(observations: List[Observation]) -> pd.DataFrame:
     for row in data:
         row["status"] = row["status"].name
 
+    return pd.DataFrame(data)
+
+
+def submissions_to_dataframe(submissions: List[Submission]) -> pd.DataFrame:
+    """
+    Convert a list of Submission objects to a pandas DataFrame.
+
+    Parameters
+    ----------
+    submissions : List[Submission]
+        The submissions to convert.
+
+    Returns
+    -------
+    submissions : `~pd.DataFrame`
+    """
+    data = [asdict(sub) for sub in submissions]
     return pd.DataFrame(data)
