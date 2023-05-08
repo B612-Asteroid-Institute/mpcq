@@ -8,6 +8,7 @@ import sqlalchemy as sq
 from google.cloud.sql.connector import Connector
 
 from .observation import Observation, ObservationStatus
+from .submission import Submission
 
 log = logging.getLogger("mpcq.client")
 
@@ -67,8 +68,29 @@ class MPCObservationsClient:
         for r in result:
             yield self._parse_obs_sbn_row(r)
 
+    def get_object_submissions(
+        self,
+        object_provisional_designation: str,
+    ) -> Iterator[Submission]:
+
+        stmt = self._submissions_select_stmt(object_provisional_designation)
+        result = self._dbconn.execute(stmt)
+        for r in result:
+            yield self._parse_submissions_sbn_row(r)
+
     @staticmethod
     def _parse_obs_sbn_row(row: sq.engine.Row) -> Observation:
+
+        if row.created_at is None:
+            created_at = None
+        else:
+            created_at = astropy.time.Time(row.created_at, scale="utc")
+
+        if row.updated_at is None:
+            updated_at = None
+        else:
+            updated_at = astropy.time.Time(row.updated_at, scale="utc")
+
         return Observation(
             mpc_id=row.id,
             status=ObservationStatus._from_db_value(row.status),
@@ -82,6 +104,16 @@ class MPCObservationsClient:
             ra_rms=row.rmsra,
             dec_rms=row.rmsdec,
             mag_rms=row.rmsmag,
+            submission_id=row.submission_id,
+            created_at=created_at,
+            updated_at=updated_at,
+        )
+
+    @staticmethod
+    def _parse_submissions_sbn_row(row: sq.engine.Row) -> Submission:
+        return Submission(
+            id=row.submission_id,
+            num_observations=row.num_observations,
         )
 
     def _observations_select_stmt(
@@ -112,6 +144,9 @@ class MPCObservationsClient:
                 sq.column("mag"),
                 sq.column("rmsmag"),
                 sq.column("band"),
+                sq.column("submission_id"),
+                sq.column("created_at"),
+                sq.column("updated_at"),
             )
             .select_from(sq.table("obs_sbn"))
             .where(
@@ -122,5 +157,38 @@ class MPCObservationsClient:
             stmt = stmt.where(sq.column("stn") == obscode)
         if filter_band is not None:
             stmt = stmt.where(sq.column("band") == filter_band)
+
+        return stmt
+
+    def _submissions_select_stmt(
+        self,
+        provisional_designation: str,
+    ) -> sq.sql.expression.Select:
+        """
+        Construct a database select statement to fetch submission IDs for
+        the given object (named by provisional designation, eg "2022 AJ2").
+
+        Parameters
+        ----------
+        provisional_designation : str
+            The provisional designation of the object to fetch submissions for.
+
+        Returns
+        -------
+        sq.sql.expression.Select
+            The select statement to fetch the submission IDs for the given object.
+        """
+        log.info("loading submissions for %s", provisional_designation)
+        stmt = (
+            sq.select(
+                sq.column("submission_id"),
+                sq.func.count(sq.column("submission_id")).label("num_observations"),
+            )
+            .select_from(sq.table("obs_sbn"))
+            .where(
+                sq.column("provid") == provisional_designation,
+            )
+            .group_by(sq.column("submission_id"))
+        )
 
         return stmt

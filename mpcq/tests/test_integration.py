@@ -37,6 +37,19 @@ class TestIntegration:
             assert o.unpacked_provisional_designation == "2022 AJ2"
             assert o.filter_band == "G"
 
+    def test_get_object_submissions(self, mpc_client):
+        submissions = list(mpc_client.get_object_submissions("2022 AJ2"))
+        assert len(submissions) >= 1
+        for s in submissions:
+            assert s.num_observations >= 1
+
+        observations = mpc_client.get_object_observations("2022 AJ2")
+        observations = list(observations)
+
+        num_observations_from_submissions = sum(s.num_observations for s in submissions)
+        num_observations = len(observations)
+        assert num_observations_from_submissions == num_observations
+
 
 @pytest.fixture
 def mpc_client():
