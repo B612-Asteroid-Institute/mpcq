@@ -192,3 +192,30 @@ class MPCObservationsClient:
         )
 
         return stmt
+
+    def object_counts_for_submission_id(
+        self, submission_id: str
+    ) -> list[tuple[str, int]]:
+        """
+        Queries for the number of observations for each object associated with a given submission ID.
+        """
+        log.info("loading object counts for submission ID %s", submission_id)
+        stmt = (
+            sq.select(
+                sq.column("provid"),
+                sq.func.count(sq.column("provid")).label("num_observations"),
+            )
+            .select_from(sq.table("obs_sbn"))
+            .where(
+                # HACK: the database currently only has an index for
+                # submission_block_id, even though we'd like to use
+                # submission_id.
+                sq.column("submission_block_id") == submission_id + "_01",
+                # We'd prefer this:
+                # sq.column("submission_id") == submission_id,
+                # but that index is still being built.
+            )
+            .group_by(sq.column("provid"))
+        )
+        result = self._dbconn.execute(stmt)
+        return [(row.provid, row.num_observations) for row in result]
