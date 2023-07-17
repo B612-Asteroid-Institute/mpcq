@@ -28,5 +28,3 @@ jobs:
         run: python -m build --sdist --wheel --outdir dist/ .
       - name: Publish mpcq to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_API_TOKEN }}
