@@ -1,4 +1,5 @@
 [project]
+name = mpcq
 dynamic = ["version"]
 
 [build-system]
