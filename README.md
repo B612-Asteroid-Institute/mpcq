@@ -3,6 +3,22 @@
 
 This is a client library for interacting with an MPC observations database.
 
+## Notice
+
+The Asteroid Institute hosts a private mirror of the Minor Planet Center's Small Bodies Node.
+
+To set up your own mirror, please see the [SBN guidelines](https://sbnwiki.astro.umd.edu/wiki/). While support is planned for connecting to an arbitrary database mirror, the current version of this package only supports connecting to a hosted Cloud SQL instance on GCP.
+
+Two indices on the observation table have been added for performance reasons. They are listed below with their sql definitions:
+- obs_sbn_submission_id 
+```sql
+CREATE INDEX obs_sbn_submission_id ON public.obs_sbn USING hash (submission_id);
+```
+- obs_sbn_provid 
+```sql
+CREATE INDEX obs_sbn_provid ON public.obs_sbn USING hash (provid)
+```
+
 ## Usage
 
 To connect to the Asteroid Institute's clone of the Small Bodies Node MPC database:
