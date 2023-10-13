@@ -26,8 +26,8 @@ class MPCObservationsClient:
     @classmethod
     def connect_using_gcloud(
         cls,
-        cloudsql_connection_name: str = "moeyens-thor-dev:us-west1:mpc-replica",
-        credentials_uri: str = "projects/moeyens-thor-dev/secrets/mpc-replica-readonly-credentials/versions/latest",  # noqa: E501
+        cloudsql_connection_name: str = "moeyens-thor-dev:us-west1:mpc-sbn-replica",
+        credentials_uri: str = "projects/moeyens-thor-dev/secrets/mpc-sbn-replica-readonly-credentials/versions/latest",  # noqa: E501
     ):
         log.info("loading database credentials")
         client = google.cloud.secretmanager.SecretManagerServiceClient()
