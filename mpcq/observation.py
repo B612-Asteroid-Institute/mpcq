@@ -2,6 +2,7 @@ import dataclasses
 import decimal
 from enum import Enum
 from typing import Optional
+from quivr import Int64Column, Date64Column, Float64Column, StringColumn, Table, and_, ge, le
 
 import astropy.time
 
@@ -76,3 +77,36 @@ class Observation:
     # Time when the last update to this observations was made, None if
     # never updated beyond initial creation
     updated_at: Optional[astropy.time.Time]
+
+
+class ObservationsQv(Table):
+    """
+    Observations is a quivr table of data about MPC observations.
+    """
+
+    mpc_id = Int64Column(nullable=False)
+
+    status = StringColumn(nullable=False)
+
+    obscode = StringColumn(nullable=False)
+    filter_band = StringColumn(nullable=True)
+
+    permanent_designation = StringColumn(nullable=True)
+    unpacked_provisional_designation = StringColumn(nullable=True)
+
+    mjd = Float64Column(nullable=False, validator=and_(ge(20000), le(100000)))
+    timestamp = Date64Column(nullable=False)
+
+    ra = Float64Column(nullable=False, validator=and_(ge(0), le(360)))
+    ra_sigma = Float64Column(nullable=True)
+
+    dec = Float64Column(nullable=False, validator=and_(ge(-90), le(90)))
+    dec_sigma = Float64Column(nullable=True)
+
+    mag = Float64Column(nullable=True)
+    mag_rms = Float64Column(nullable=True)
+
+    submission_id = StringColumn(nullable=False)
+
+    created_at = Float64Column(nullable=True)
+    updated_at = Float64Column(nullable=True)
