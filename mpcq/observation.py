@@ -2,9 +2,18 @@ import dataclasses
 import decimal
 from enum import Enum
 from typing import Optional
-from quivr import Int64Column, Date64Column, Float64Column, StringColumn, Table, and_, ge, le
 
 import astropy.time
+from quivr import (
+    Date64Column,
+    Float64Column,
+    Int64Column,
+    StringColumn,
+    Table,
+    and_,
+    ge,
+    le,
+)
 
 
 class ObservationStatus(Enum):
