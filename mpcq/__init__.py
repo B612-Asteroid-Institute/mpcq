@@ -1,11 +1,11 @@
 from .client import MPCObservationsClient
-from .observation import Observation, ObservationStatus, ObservationsQv
+from .observation import Observation, ObservationsTable, ObservationStatus
 from .version import __version__
 
 __all__ = [
     "MPCObservationsClient",
     "Observation",
     "ObservationStatus",
-    "ObservationsQv",
+    "ObservationsTable",
     "__version__",
 ]

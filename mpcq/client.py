@@ -1,7 +1,7 @@
 import json
 import logging
 from datetime import datetime
-from typing import Iterator, Optional, Any, Dict, List
+from typing import Any, Dict, Iterator, List, Optional
 
 import astropy.time
 import google.cloud.secretmanager
@@ -9,7 +9,7 @@ import numpy as np
 import sqlalchemy as sq
 from google.cloud.sql.connector import Connector
 
-from .observation import Observation, ObservationsQv, ObservationStatus
+from .observation import Observation, ObservationsTable, ObservationStatus
 from .submission import Submission
 
 log = logging.getLogger("mpcq.client")
@@ -222,7 +222,7 @@ class MPCObservationsClient:
 
     def observations_table(
         self, obscodes: list[str], start_timestamp: datetime, end_timestamp: datetime
-    ) -> ObservationsQv:
+    ) -> ObservationsTable:
         """
         Queries for all observations within a given time range for a given set of observatory codes.
         """
@@ -291,7 +291,7 @@ class MPCObservationsClient:
             astropy.time.Time(x, scale="utc").mjd for x in data["obstime"]
         ]
 
-        return ObservationsQv.from_kwargs(
+        return ObservationsTable.from_kwargs(
             mpc_id=np.array(data["mpc_id"], dtype=np.int64),
             status=np.array(data["status"]),
             obscode=np.array(data["stn"]),

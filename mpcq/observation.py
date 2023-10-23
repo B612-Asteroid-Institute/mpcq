@@ -4,16 +4,7 @@ from enum import Enum
 from typing import Optional
 
 import astropy.time
-from quivr import (
-    Date64Column,
-    Float64Column,
-    Int64Column,
-    StringColumn,
-    Table,
-    and_,
-    ge,
-    le,
-)
+import quivr as qv
 
 
 class ObservationStatus(Enum):
@@ -88,34 +79,36 @@ class Observation:
     updated_at: Optional[astropy.time.Time]
 
 
-class ObservationsQv(Table):
+class ObservationsTable(qv.Table):
     """
     Observations is a quivr table of data about MPC observations.
     """
 
-    mpc_id = Int64Column(nullable=False)
+    mpc_id = qv.Int64Column(nullable=False)
 
-    status = StringColumn(nullable=False)
+    status = qv.StringColumn(nullable=False)
 
-    obscode = StringColumn(nullable=False)
-    filter_band = StringColumn(nullable=True)
+    obscode = qv.StringColumn(nullable=False)
+    filter_band = qv.StringColumn(nullable=True)
 
-    permanent_designation = StringColumn(nullable=True)
-    unpacked_provisional_designation = StringColumn(nullable=True)
+    permanent_designation = qv.StringColumn(nullable=True)
+    unpacked_provisional_designation = qv.StringColumn(nullable=True)
 
-    mjd = Float64Column(nullable=False, validator=and_(ge(20000), le(100000)))
-    timestamp = Date64Column(nullable=False)
+    mjd = qv.Float64Column(
+        nullable=False, validator=qv.and_(qv.ge(20000), qv.le(100000))
+    )
+    timestamp = qv.Date64Column(nullable=False)
 
-    ra = Float64Column(nullable=False, validator=and_(ge(0), le(360)))
-    ra_sigma = Float64Column(nullable=True)
+    ra = qv.Float64Column(nullable=False, validator=qv.and_(qv.ge(0), qv.le(360)))
+    ra_sigma = qv.Float64Column(nullable=True)
 
-    dec = Float64Column(nullable=False, validator=and_(ge(-90), le(90)))
-    dec_sigma = Float64Column(nullable=True)
+    dec = qv.Float64Column(nullable=False, validator=qv.and_(qv.ge(-90), qv.le(90)))
+    dec_sigma = qv.Float64Column(nullable=True)
 
-    mag = Float64Column(nullable=True)
-    mag_rms = Float64Column(nullable=True)
+    mag = qv.Float64Column(nullable=True)
+    mag_rms = qv.Float64Column(nullable=True)
 
-    submission_id = StringColumn(nullable=False)
+    submission_id = qv.StringColumn(nullable=False)
 
-    created_at = Float64Column(nullable=True)
-    updated_at = Float64Column(nullable=True)
+    created_at = qv.Float64Column(nullable=True)
+    updated_at = qv.Float64Column(nullable=True)
