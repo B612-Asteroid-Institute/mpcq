@@ -75,6 +75,8 @@ idna==3.4
     #   yarl
 iniconfig==2.0.0
     # via pytest
+mmh3==4.0.1
+    # via quivr
 multidict==6.0.4
     # via
     #   aiohttp
@@ -85,13 +87,17 @@ numpy==1.24.2
     # via
     #   astropy
     #   pandas
+    #   pyarrow
     #   pyerfa
+    #   quivr
 packaging==23.0
     # via
     #   astropy
     #   pytest
 pandas==1.5.3
-    # via mpcq (setup.py)
+    # via
+    #   mpcq (setup.py)
+    #   quivr
 pg8000==1.29.4
     # via
     #   cloud-sql-python-connector
@@ -112,6 +118,8 @@ protobuf==4.22.1
     #   grpc-google-iam-v1
     #   grpcio-status
     #   proto-plus
+pyarrow==13.0.0
+    # via quivr
 pyasn1==0.4.8
     # via
     #   pyasn1-modules
@@ -134,6 +142,8 @@ pyyaml==6.0
     # via
     #   astropy
     #   pre-commit
+quivr==0.7.2
+    # via mpcq (setup.py)
 requests==2.28.2
     # via
     #   cloud-sql-python-connector
@@ -150,6 +160,8 @@ sqlalchemy==1.4.47
     # via mpcq (setup.py)
 tomli==2.0.1
     # via pytest
+typing-extensions==4.8.0
+    # via quivr
 urllib3==1.26.15
     # via requests
 virtualenv==20.21.0
