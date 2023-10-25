@@ -1,13 +1,15 @@
 import json
 import logging
-from typing import Iterator, Optional
+from datetime import datetime
+from typing import Any, Dict, Iterator, List, Optional
 
 import astropy.time
 import google.cloud.secretmanager
+import numpy as np
 import sqlalchemy as sq
 from google.cloud.sql.connector import Connector
 
-from .observation import Observation, ObservationStatus
+from .observation import Observation, ObservationsTable, ObservationStatus
 from .submission import Submission
 
 log = logging.getLogger("mpcq.client")
@@ -72,7 +74,6 @@ class MPCObservationsClient:
         self,
         object_provisional_designation: str,
     ) -> Iterator[Submission]:
-
         stmt = self._submissions_select_stmt(object_provisional_designation)
         result = self._dbconn.execute(stmt)
         for r in result:
@@ -80,7 +81,6 @@ class MPCObservationsClient:
 
     @staticmethod
     def _parse_obs_sbn_row(row: sq.engine.Row) -> Observation:
-
         if row.created_at is None:
             created_at = None
         else:
@@ -219,3 +219,94 @@ class MPCObservationsClient:
         )
         result = self._dbconn.execute(stmt)
         return [(row.provid, row.num_observations) for row in result]
+
+    def observations_table(
+        self, obscodes: list[str], start_timestamp: datetime, end_timestamp: datetime
+    ) -> ObservationsTable:
+        """
+        Queries for all observations within a given time range for a given set of observatory codes.
+        """
+        # log.info("loading observations for obscodes ID %s", obscodes)
+        stmt = (
+            sq.select(
+                sq.column("id").label("mpc_id"),
+                sq.column("stn"),
+                sq.column("status"),
+                sq.column("ra"),
+                sq.column("dec"),
+                sq.column("obstime"),
+                sq.column("permid"),
+                sq.column("provid"),
+                sq.column("rmsra"),
+                sq.column("rmsdec"),
+                sq.column("mag"),
+                sq.column("rmsmag"),
+                sq.column("band"),
+                sq.column("submission_id"),
+                sq.column("created_at"),
+                sq.column("updated_at"),
+            )
+            .select_from(sq.table("obs_sbn"))
+            .where(
+                sq.and_(
+                    sq.column("obstime").between(start_timestamp, end_timestamp),
+                    sq.column("stn").in_(obscodes),
+                )
+            )
+        )
+        result = self._dbconn.execute(stmt)
+
+        # Create lists to store the data
+        data: Dict[str, List[Any]] = {
+            "mpc_id": [],
+            "stn": [],
+            "status": [],
+            "ra": [],
+            "dec": [],
+            "obstime": [],
+            "permid": [],
+            "provid": [],
+            "rmsra": [],
+            "rmsdec": [],
+            "mag": [],
+            "rmsmag": [],
+            "band": [],
+            "submission_id": [],
+            "created_at": [],
+            "updated_at": [],
+        }
+
+        # Iterate over the result and store the data in lists
+        for row in result:
+            for column, value in zip(data.keys(), row):
+                # we'll cast times to mjd for convenience
+                if column in ["created_at", "updated_at"]:
+                    if value:
+                        data[column].append(astropy.time.Time(value, scale="utc").mjd)
+                    else:
+                        data[column].append(None)
+                else:
+                    data[column].append(value)
+        data["obstime_mjd"] = [
+            astropy.time.Time(x, scale="utc").mjd for x in data["obstime"]
+        ]
+
+        return ObservationsTable.from_kwargs(
+            mpc_id=np.array(data["mpc_id"], dtype=np.int64),
+            status=np.array(data["status"]),
+            obscode=np.array(data["stn"]),
+            filter_band=np.array(data["band"]),
+            permanent_designation=np.array(data["permid"]),
+            unpacked_provisional_designation=np.array(data["provid"]),
+            mjd=np.array(data["obstime_mjd"], dtype=np.float64),
+            timestamp=np.array(data["obstime"], dtype=np.datetime64),
+            ra=np.array(data["ra"], dtype=np.float64),
+            ra_sigma=np.array(data["rmsra"], dtype=np.float64),
+            dec=np.array(data["dec"], dtype=np.float64),
+            dec_sigma=np.array(data["rmsdec"], dtype=np.float64),
+            mag=np.array(data["mag"], dtype=np.float64),
+            mag_rms=np.array(data["rmsmag"], dtype=np.float64),
+            created_at=np.array(data["created_at"]),
+            updated_at=np.array(data["updated_at"]),
+            submission_id=np.array(data["submission_id"]),
+        )
