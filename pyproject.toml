@@ -1,9 +1,27 @@
 [project]
 name = "mpcq"
-dynamic = ["version"]
+dynamic = ["version", "readme"]
+requires-python = ">=3.9"
+
+dependencies = [
+    "adam_core @ git+https://git@github.com/B612-Asteroid-Institute/adam_core@2eb98c2a8ee5703cd9de8d37c1281aa7881be3fa#egg=adam_core", 
+    "sqlalchemy < 2", 
+    "pandas", 
+    "astropy", 
+    "quivr", 
+    "google-cloud-secret-manager", 
+    "cloud-sql-python-connector[pg8000]", 
+    "pg8000"
+]
+
+[project.optional-dependencies]
+tests = [
+    "pre-commit",
+    "pytest"
+]
 
 [build-system]
-requires = ["setuptools", "wheel", "setuptools_scm[toml]>=6.2"]
+requires = ["setuptools", "wheel", "setuptools"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools_scm]

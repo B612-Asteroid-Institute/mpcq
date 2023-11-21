@@ -343,7 +343,6 @@ class MPCObservationsClient:
             chunk_stmt = stmt.limit(chunk_size).offset(offset)
             result = self._dbconn.execute(chunk_stmt)
             chunk = orbits_from_query_result(result)
-            # if not chunk:
             if not chunk:
                 break
             yield chunk
