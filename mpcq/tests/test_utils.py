@@ -9,7 +9,6 @@ from mpcq.utils import observations_to_dataframe, submissions_to_dataframe
 
 
 def test_observations_to_dataframe():
-
     observation = Observation(
         mpc_id=1000,
         status=ObservationStatus.Published,
@@ -52,7 +51,6 @@ def test_observations_to_dataframe():
 
 
 def test_submissions_to_dataframe():
-
     submission = Submission(
         id="2020-10-23T06:39:01.200_0000DvZH",
         num_observations=5,

@@ -1,25 +1,22 @@
 import logging
-from typing import Iterator
-import sqlalchemy as sq
+from typing import Any, Dict
 
 import numpy as np
-
+import sqlalchemy as sq
 from adam_core.coordinates.cometary import CometaryCoordinates
 from adam_core.coordinates.covariances import (
     CoordinateCovariances,
     sigmas_to_covariances,
 )
 from adam_core.coordinates.origin import Origin
-from adam_core.time import Timestamp
 from adam_core.orbits import Orbits
 from adam_core.orbits.query.sbdb import _convert_SBDB_covariances
+from adam_core.time import Timestamp
 
 logger = logging.getLogger(__name__)
 
 
-def orbits_from_query_result(
-    results: sq.engine.cursor.LegacyCursorResult
-) -> Orbits:
+def orbits_from_query_result(results: sq.engine.cursor.LegacyCursorResult) -> Orbits:
     """
     Iterates through a query result and coerces the results in an
     adam_core Orbits object
@@ -30,11 +27,11 @@ def orbits_from_query_result(
     # covariances_mpc = np.zeros((chunk_size, 6, 6), dtype=np.float64)
     covariances_list = []
     columns = results.keys()
-    result_dict = {col: [] for col in columns}
+    result_dict: Dict[str, Any] = {col: [] for col in columns}
 
     for i, result in enumerate(results):
         # We occasionally have null orbits in the database, so we want to skip those
-        if result['epoch_mjd'] is None:
+        if result["epoch_mjd"] is None:
             continue
         for col in columns:
             # if null we want to skip this iteration
