@@ -1,11 +1,10 @@
 import logging
+from typing import Any, Dict
 
 import numpy as np
 import sqlalchemy as sq
 from adam_core.coordinates.cartesian import CartesianCoordinates
-from adam_core.coordinates.covariances import (
-    CoordinateCovariances,
-)
+from adam_core.coordinates.covariances import CoordinateCovariances
 from adam_core.coordinates.origin import Origin
 from adam_core.orbits import Orbits
 from adam_core.time import Timestamp
@@ -23,7 +22,7 @@ def orbits_from_query_result(results: sq.engine.cursor.LegacyCursorResult) -> Or
 
     # covariances_mpc = np.zeros((chunk_size, 6, 6), dtype=np.float64)
     covariances_list = []
-    result_dict = {
+    result_dict: Dict[str, Any] = {
         "mpc_id": [],
         "provid": [],
         "epoch_mjd": [],
@@ -57,15 +56,15 @@ def orbits_from_query_result(results: sq.engine.cursor.LegacyCursorResult) -> Or
     times = Timestamp.from_mjd(result_dict["epoch_mjd"], scale="tt")
     origin = Origin.from_kwargs(code=["SUN" for i in range(len(times))])
     frame = "ecliptic"
-    cart_coeff = np.array(cart_coeff)
+    coeff_array = np.array(cart_coeff, dtype=np.float64)
     coordinates = CartesianCoordinates.from_kwargs(
         time=times,
-        x=cart_coeff[:, 0],
-        y=cart_coeff[:, 1],
-        z=cart_coeff[:, 2],
-        vx=cart_coeff[:, 3],
-        vy=cart_coeff[:, 4],
-        vz=cart_coeff[:, 5],
+        x=coeff_array[:, 0],
+        y=coeff_array[:, 1],
+        z=coeff_array[:, 2],
+        vx=coeff_array[:, 3],
+        vy=coeff_array[:, 4],
+        vz=coeff_array[:, 5],
         covariance=CoordinateCovariances.from_matrix(covariances_cartesian),
         origin=origin,
         frame=frame,
