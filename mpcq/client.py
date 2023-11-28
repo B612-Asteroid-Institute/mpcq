@@ -7,9 +7,11 @@ import astropy.time
 import google.cloud.secretmanager
 import numpy as np
 import sqlalchemy as sq
+from adam_core.orbits import Orbits
 from google.cloud.sql.connector import Connector
 
 from .observation import Observation, ObservationsTable, ObservationStatus
+from .orbit import orbits_from_query_result
 from .submission import Submission
 
 log = logging.getLogger("mpcq.client")
@@ -310,3 +312,23 @@ class MPCObservationsClient:
             updated_at=np.array(data["updated_at"]),
             submission_id=np.array(data["submission_id"]),
         )
+
+    def orbits_chunked(self, chunk_size: int = 100000) -> Iterator[Orbits]:
+        """
+        Queries for all orbits in the database, yielding them as adam_core Orbits
+        in chunks of the requested size.
+        """
+        stmt = sq.select(
+            sq.column("id").label("mpc_id"),
+            sq.column("unpacked_primary_provisional_designation").label("provid"),
+            sq.column("mpc_orb_jsonb"),
+        ).select_from(sq.table("mpc_orbits"))
+        offset = 0
+        while True:
+            chunk_stmt = stmt.limit(chunk_size).offset(offset)
+            result = self._dbconn.execute(chunk_stmt)
+            chunk = orbits_from_query_result(result)
+            if not chunk:
+                break
+            yield chunk
+            offset += chunk_size

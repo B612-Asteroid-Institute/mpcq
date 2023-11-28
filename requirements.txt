@@ -4,6 +4,7 @@
 #
 #    pip-compile --all-extras
 #
+adam-core @ git+https://git@github.com/B612-Asteroid-Institute/adam_core@37ceca7acf8216d46ec1daea7116acec6350a901
 aiohttp==3.8.4
     # via cloud-sql-python-connector
 aiosignal==1.3.1
