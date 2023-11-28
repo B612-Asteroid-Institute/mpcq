@@ -50,6 +50,19 @@ class TestIntegration:
         num_observations = len(observations)
         assert num_observations_from_submissions == num_observations
 
+    def test_get_orbits(self, mpc_client):
+        orb_iter = mpc_client.orbits_chunked(chunk_size=10)
+        # Do two iterations to test the chunking
+        for i in range(2):
+            orbits = next(orb_iter)
+            assert len(orbits) >= 1
+            assert len(orbits) <= 10
+            for o in orbits:
+                assert o.orbit_id is not None
+                assert o.object_id is not None
+                assert o.coordinates is not None
+                assert o.coordinates.covariance.is_all_nan() is not True
+
 
 @pytest.fixture
 def mpc_client():

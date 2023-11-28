@@ -321,19 +321,7 @@ class MPCObservationsClient:
         stmt = sq.select(
             sq.column("id").label("mpc_id"),
             sq.column("unpacked_primary_provisional_designation").label("provid"),
-            sq.column("q"),
-            sq.column("e"),
-            sq.column("i"),
-            sq.column("node").label("raan"),
-            sq.column("argperi").label("ap"),
-            sq.column("peri_time").label("tp"),
-            sq.column("q_unc").label("q_sig"),
-            sq.column("e_unc").label("e_sig"),
-            sq.column("i_unc").label("i_sig"),
-            sq.column("node_unc").label("raan_sig"),
-            sq.column("argperi_unc").label("ap_sig"),
-            sq.column("peri_time_unc").label("tp_sig"),
-            sq.column("epoch_mjd"),
+            sq.column("mpc_orb_jsonb"),
         ).select_from(sq.table("mpc_orbits"))
         offset = 0
         while True:
