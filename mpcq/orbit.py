@@ -58,6 +58,8 @@ def orbits_from_query_result(results: sq.engine.cursor.LegacyCursorResult) -> Or
         result_dict["provid"].append(result["provid"])
         result_dict["epoch_mjd"].append(result["mpc_orb_jsonb"]["epoch_data"]["epoch"])
 
+    if len(cart_coeff) == 0:
+        return Orbits.empty()
     covariances_cartesian = np.zeros((len(covariances_list), 6, 6), dtype=np.float64)
     for i in range(len(covariances_list)):
         covariances_cartesian[i, :, :] = covariances_list[i]
