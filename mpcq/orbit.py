@@ -31,9 +31,18 @@ def orbits_from_query_result(results: sq.engine.cursor.LegacyCursorResult) -> Or
 
     for i, result in enumerate(results):
         # We occasionally have null orbits in the database, so we want to skip those
-        if result["mpc_orb_jsonb"] is None:
+        if result["mpc_orb_jsonb"] is None or result["mpc_orb_jsonb"] == {}:
             continue
-        cart_coeff.append(result["mpc_orb_jsonb"]["CAR"]["coefficient_values"][:6])
+        try:
+            cart_coeff.append(result["mpc_orb_jsonb"]["CAR"]["coefficient_values"][:6])
+        except KeyError:
+            try:  # sometimes the cpefficient_values key is missing,
+                # but there is a sub dict with 'elements'
+                cart_coeff.append(
+                    list(result["mpc_orb_jsonb"]["CAR"]["elements"].values())[:6]
+                )
+            except KeyError:
+                continue
         cart_covariance = np.zeros((6, 6), dtype=np.float64)
         # MPC supplies a 9x9 upper triangular matrix, this indexes over the jsonb
         # and sets the values to the format expected by adam_core
