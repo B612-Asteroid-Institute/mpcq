@@ -81,8 +81,8 @@ def orbits_from_query_result(results: sq.engine.cursor.LegacyCursorResult) -> Or
         frame=frame,
     )
 
-    orbit_ids = np.array([str(id) for id in result_dict["mpc_id"]])
-    object_ids = np.array(result_dict["provid"])
+    orbit_ids = np.array([str(id) for id in result_dict["mpc_id"]], dtype="object")
+    object_ids = np.array(result_dict["provid"], dtype="object")
 
     return Orbits.from_kwargs(
         orbit_id=orbit_ids, object_id=object_ids, coordinates=coordinates
