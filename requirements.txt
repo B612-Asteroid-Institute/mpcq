@@ -4,7 +4,7 @@
 #
 #    pip-compile --all-extras
 #
-adam-core @ git+https://git@github.com/B612-Asteroid-Institute/adam_core
+adam-core @ git+https://git@github.com/B612-Asteroid-Institute/adam_core@f49ca3c17c525a031cd33f3bc1c12a073b15b0aa
     # via mpcq (setup.py)
 aiohttp==3.9.1
     # via cloud-sql-python-connector
@@ -252,7 +252,7 @@ pyyaml==6.0.1
     #   astropy
     #   pre-commit
     #   ray
-quivr==0.7.2
+quivr @ git+https://github.com/moeyensj/quivr@8188ccf2a08026979177fc3ab8e6b7e13f6420cf
     # via
     #   adam-core
     #   mpcq (setup.py)
