@@ -4,7 +4,7 @@ dynamic = ["version", "readme"]
 requires-python = ">=3.9"
 
 dependencies = [
-    "adam_core @ git+https://git@github.com/B612-Asteroid-Institute/adam_core#egg=adam_core",
+    "adam_core @ git+https://git@github.com/B612-Asteroid-Institute/adam_core@080aa55d322f417db4bcb580de61e1aaccbe13d6#egg=adam_core",
     "sqlalchemy < 2",
     "pandas",
     "astropy",
