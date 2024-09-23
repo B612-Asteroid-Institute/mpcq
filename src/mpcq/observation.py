@@ -13,7 +13,7 @@ class ObservationStatus(Enum):
     IsolatedTrackletFile = 3
 
     @classmethod
-    def _from_db_value(cls, val: str):
+    def _from_db_value(cls, val: str) -> "ObservationStatus":
         return {
             "P": ObservationStatus.Published,
             "p": ObservationStatus.Pending,

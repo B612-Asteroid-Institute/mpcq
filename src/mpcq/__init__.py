@@ -1,6 +1,6 @@
+from ._version import __version__
 from .client import MPCObservationsClient
 from .observation import Observation, ObservationsTable, ObservationStatus
-from .version import __version__
 
 __all__ = [
     "MPCObservationsClient",
