@@ -20,11 +20,11 @@ _DB_DRIVER = "pg8000"
 
 
 class MPCObservationsClient:
-    def __init__(self, dbconn: sq.engine.Connection):
+    def __init__(self, dbconn: sq.engine.Connection) -> None:
         self._dbconn = dbconn
 
     @classmethod
-    def connect(cls, engine: sq.engine.Engine):
+    def connect(cls, engine: sq.engine.Engine) -> "MPCObservationsClient":
         return cls(dbconn=engine.connect())
 
     @classmethod
@@ -32,7 +32,7 @@ class MPCObservationsClient:
         cls,
         cloudsql_connection_name: str = "moeyens-thor-dev:us-west1:mpc-sbn-replica",
         credentials_uri: str = "projects/moeyens-thor-dev/secrets/mpc-sbn-replica-readonly-credentials/versions/latest",  # noqa: E501
-    ):
+    ) -> "MPCObservationsClient":
         log.info("loading database credentials")
         client = google.cloud.secretmanager.SecretManagerServiceClient()
         secret = client.access_secret_version(name=credentials_uri)
@@ -41,7 +41,7 @@ class MPCObservationsClient:
 
         connector = Connector()
 
-        def make_connection():
+        def make_connection() -> sq.engine.Connection:
             conn = connector.connect(
                 cloudsql_connection_name,
                 _DB_DRIVER,
@@ -56,7 +56,7 @@ class MPCObservationsClient:
         )
         return cls.connect(engine)
 
-    def close(self):
+    def close(self) -> None:
         self._dbconn.close()
 
     def get_object_observations(

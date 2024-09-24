@@ -3,12 +3,12 @@ import decimal
 import pandas as pd
 from astropy.time import Time
 
-from mpcq.observation import Observation, ObservationStatus
-from mpcq.submission import Submission
-from mpcq.utils import observations_to_dataframe, submissions_to_dataframe
+from ..observation import Observation, ObservationStatus
+from ..submission import Submission
+from ..utils import observations_to_dataframe, submissions_to_dataframe
 
 
-def test_observations_to_dataframe():
+def test_observations_to_dataframe() -> None:
     observation = Observation(
         mpc_id=1000,
         status=ObservationStatus.Published,
@@ -50,7 +50,7 @@ def test_observations_to_dataframe():
     pd.testing.assert_frame_equal(observations_to_dataframe([observation]), desired_df)
 
 
-def test_submissions_to_dataframe():
+def test_submissions_to_dataframe() -> None:
     submission = Submission(
         id="2020-10-23T06:39:01.200_0000DvZH",
         num_observations=5,

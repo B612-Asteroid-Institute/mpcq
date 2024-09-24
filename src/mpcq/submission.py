@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from astropy.time import Time
 
 
-def timestamp_from_submission_id(submission_id: str):
+def timestamp_from_submission_id(submission_id: str) -> Time:
     timestamp_isot = submission_id.split("_")[0]
     return Time(timestamp_isot, format="isot")
 
@@ -19,5 +19,5 @@ class Submission:
     # Added-value (extracted from submission ID)
     timestamp: Time = field(init=False)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         self.timestamp = timestamp_from_submission_id(self.id)

@@ -1,6 +1,10 @@
 # mpcq
 #### A Python package by the Asteroid Institute, a program of the B612 Foundation  
 
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue)](https://img.shields.io/badge/Python-3.10%2B-blue)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)  
+[![pip - Build, Lint, Test, and Coverage](https://github.com/B612-Asteroid-Institute/mpcq/actions/workflows/pip-build-lint-test-coverage.yml/badge.svg)](https://github.com/B612-Asteroid-Institute/mpcq/actions/workflows/pip-build-lint-test-coverage.yml)
+
 This is a client library for interacting with an MPC observations database.
 
 ## Notice
