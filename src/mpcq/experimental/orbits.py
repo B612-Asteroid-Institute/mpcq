@@ -10,7 +10,8 @@ class MPCOrbits(qv.Table):
 
     id = qv.Int64Column()
     primary_designation = qv.LargeStringColumn()
-    provid = qv.LargeStringColumn()
+    provid = qv.LargeStringColumn(nullable=True)
+    permid = qv.LargeStringColumn(nullable=True)
     epoch = Timestamp.as_column()
     q = qv.Float64Column(nullable=True)
     e = qv.Float64Column(nullable=True)

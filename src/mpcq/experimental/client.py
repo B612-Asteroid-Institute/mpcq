@@ -89,45 +89,60 @@ class BigQueryMPCClient(MPCClient):
         """
         provids_str = ", ".join([f'"{id}"' for id in provids])
 
-        query = f"""
-        SELECT DISTINCT 
-            obsid, 
-            primary_designation, 
-            trksub, 
-            permid, 
-            provid, 
-            submission_id, 
-            obssubid, 
-            obstime, 
-            ra, 
-            dec, 
-            rmsra, 
-            rmsdec, 
-            mag, 
-            rmsmag, 
-            band, 
-            stn, 
-            updated_at, 
-            created_at, 
-            status
+        query = f"""WITH provid_mapping AS (
+            SELECT
+                unpacked_primary_provisional_designation AS primary_designation,
+                unpacked_primary_provisional_designation AS provid
+            FROM `moeyens-thor-dev.mpc_sbn_aipublic.current_identifications`
+            WHERE unpacked_primary_provisional_designation IN ({provids_str})
+            
+            UNION DISTINCT
+            
+            SELECT
+                unpacked_primary_provisional_designation AS primary_designation,
+                unpacked_secondary_provisional_designation AS provid
+            FROM `moeyens-thor-dev.mpc_sbn_aipublic.current_identifications`
+            WHERE unpacked_secondary_provisional_designation IN ({provids_str})
+        ),
+        permid_mapping AS (
+            SELECT
+                num_ident.permid,
+                pm.primary_designation
+            FROM provid_mapping AS pm
+            LEFT JOIN `moeyens-thor-dev.mpc_sbn_aipublic.numbered_identifications` AS num_ident
+                ON pm.primary_designation = num_ident.unpacked_primary_provisional_designation
+        )
+        SELECT DISTINCT
+            obs_sbn.obsid, 
+            obs_sbn.trksub, 
+            obs_sbn.permid, 
+            obs_sbn.provid, 
+            obs_sbn.submission_id, 
+            obs_sbn.obssubid, 
+            obs_sbn.obstime, 
+            obs_sbn.ra, 
+            obs_sbn.dec, 
+            obs_sbn.rmsra, 
+            obs_sbn.rmsdec, 
+            obs_sbn.mag, 
+            obs_sbn.rmsmag, 
+            obs_sbn.band, 
+            obs_sbn.stn, 
+            obs_sbn.updated_at, 
+            obs_sbn.created_at, 
+            obs_sbn.status,
+            CASE
+                WHEN obs_sbn.permid IS NOT NULL THEN obs_sbn.permid
+                ELSE pm.primary_designation
+            END AS primary_designation
         FROM `moeyens-thor-dev.mpc_sbn_aipublic.obs_sbn` AS obs_sbn
-        INNER JOIN (
-            SELECT 
-                unpacked_primary_provisional_designation AS primary_designation, 
-                unpacked_secondary_provisional_designation AS secondary_designation
-            FROM moeyens-thor-dev.mpc_sbn_aipublic.current_identifications
-            WHERE 
-                unpacked_primary_provisional_designation IN ({provids_str})
-            OR 
-                unpacked_secondary_provisional_designation IN ({provids_str})
-        ) AS identifications
-        ON 
-            obs_sbn.provid = identifications.primary_designation 
-        OR
-            obs_sbn.provid = identifications.secondary_designation
-        ORDER BY 
-            primary_designation ASC, 
-            obstime ASC
+        LEFT JOIN provid_mapping AS pm
+            ON obs_sbn.provid = pm.provid
+        LEFT JOIN permid_mapping AS pdm
+            ON obs_sbn.permid = pdm.permid
+        WHERE obs_sbn.provid IN (SELECT provid FROM provid_mapping)
+        OR obs_sbn.permid IN (SELECT permid FROM permid_mapping)
+        ORDER BY primary_designation ASC, obs_sbn.obstime ASC;
         """
         query_job = self.client.query(query)
         results = query_job.result()
@@ -187,47 +202,70 @@ class BigQueryMPCClient(MPCClient):
             The orbits and associated data for the given provisional designations.
         """
         provids_str = ", ".join([f'"{id}"' for id in provids])
+
         query = f"""
-        SELECT DISTINCT 
-            id, 
-            primary_designation,
-            unpacked_primary_provisional_designation AS provid, 
-            epoch_mjd,
-            q, 
-            e,
-            i, 
-            node,
-            argperi,
-            peri_time,
-            q_unc,
-            e_unc,
-            i_unc,
-            node_unc,
-            argperi_unc,
-            peri_time_unc,
-            a1,
-            a2,
-            a3,
-            h,
-            g,
-            created_at,
-            updated_at
-        FROM `moeyens-thor-dev.mpc_sbn_aipublic.mpc_orbits` AS mpc_orbits
-        INNER JOIN (
-            SELECT 
-                unpacked_primary_provisional_designation AS primary_designation, 
-                unpacked_secondary_provisional_designation AS secondary_designation
-            FROM moeyens-thor-dev.mpc_sbn_aipublic.current_identifications
+        WITH provid_mapping AS (
+            SELECT
+                unpacked_primary_provisional_designation AS primary_designation,
+                unpacked_primary_provisional_designation AS provid
+            FROM `moeyens-thor-dev.mpc_sbn_aipublic.current_identifications`
             WHERE unpacked_primary_provisional_designation IN ({provids_str})
-            OR unpacked_secondary_provisional_designation IN ({provids_str})
-        ) AS identifications
-        ON 
-            mpc_orbits.unpacked_primary_provisional_designation = identifications.primary_designation 
-        OR 
-            mpc_orbits.unpacked_primary_provisional_designation = identifications.secondary_designation
+            
+            UNION DISTINCT
+            
+            SELECT
+                unpacked_primary_provisional_designation AS primary_designation,
+                unpacked_secondary_provisional_designation AS provid
+            FROM `moeyens-thor-dev.mpc_sbn_aipublic.current_identifications`
+            WHERE unpacked_secondary_provisional_designation IN ({provids_str})
+        ),
+        permid_mapping AS (
+            SELECT
+                num_ident.permid,
+                num_ident.unpacked_primary_provisional_designation AS provid,
+                pm.primary_designation
+            FROM provid_mapping AS pm
+            LEFT JOIN `moeyens-thor-dev.mpc_sbn_aipublic.numbered_identifications` AS num_ident
+                ON pm.primary_designation = num_ident.unpacked_primary_provisional_designation
+        )
+        SELECT DISTINCT 
+            mpc_orbits.id, 
+            pdm.permid AS permid,
+            mpc_orbits.unpacked_primary_provisional_designation AS provid, 
+            mpc_orbits.epoch_mjd,
+            mpc_orbits.q, 
+            mpc_orbits.e,
+            mpc_orbits.i, 
+            mpc_orbits.node,
+            mpc_orbits.argperi,
+            mpc_orbits.peri_time,
+            mpc_orbits.q_unc,
+            mpc_orbits.e_unc,
+            mpc_orbits.i_unc,
+            mpc_orbits.node_unc,
+            mpc_orbits.argperi_unc,
+            mpc_orbits.peri_time_unc,
+            mpc_orbits.a1,
+            mpc_orbits.a2,
+            mpc_orbits.a3,
+            mpc_orbits.h,
+            mpc_orbits.g,
+            mpc_orbits.created_at,
+            mpc_orbits.updated_at,
+            CASE
+                WHEN pdm.permid IS NOT NULL THEN pdm.permid
+                ELSE pm.primary_designation
+            END AS primary_designation
+        FROM `moeyens-thor-dev.mpc_sbn_aipublic.mpc_orbits` AS mpc_orbits
+        LEFT JOIN provid_mapping AS pm
+            ON mpc_orbits.unpacked_primary_provisional_designation = pm.provid
+        LEFT JOIN permid_mapping AS pdm
+            ON mpc_orbits.unpacked_primary_provisional_designation = pdm.provid
+        WHERE mpc_orbits.unpacked_primary_provisional_designation IN (SELECT provid FROM provid_mapping)
+        OR mpc_orbits.unpacked_primary_provisional_designation IN (SELECT provid FROM permid_mapping)
         ORDER BY 
-            unpacked_primary_provisional_designation ASC
-            epoch_mjd ASC
+            primary_designation ASC,
+            mpc_orbits.epoch_mjd ASC
         """
         query_job = self.client.query(query)
         results = query_job.result()
@@ -248,6 +286,7 @@ class BigQueryMPCClient(MPCClient):
             id=table["id"],
             primary_designation=table["primary_designation"],
             provid=table["provid"],
+            permid=table["permid"],
             epoch=Timestamp.from_mjd(table["epoch_mjd"], scale="tt"),
             q=table["q"],
             e=table["e"],
