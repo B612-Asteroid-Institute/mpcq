@@ -1,4 +1,9 @@
 # ruff: noqa: F401
 from .observations import MPCObservations
 from .orbits import MPCOrbits
-from .submissions import MPCSubmissionInfo
+from .submissions import (
+    MPCSubmissionHistory,
+    MPCSubmissionInfo,
+    SubmissionDetails,
+    TrksubMapping,
+)

@@ -1,5 +1,10 @@
+import warnings
+from typing import List
+
 import pyarrow.compute as pc
 import quivr as qv
+from adam_core.time import Timestamp
+from astropy.time import Time
 
 
 class SubmissionDetails(qv.Table):
@@ -81,4 +86,56 @@ class MPCSubmissionInfo(qv.Table):
     provid = qv.LargeStringColumn(nullable=True)
     permid = qv.LargeStringColumn(nullable=True)
     submission_id = qv.LargeStringColumn()
-    status = qv.LargeStringColumn()
+    status = qv.LargeStringColumn(nullable=True)
+
+
+class MPCSubmissionHistory(qv.Table):
+    primary_designation = qv.LargeStringColumn()
+    submission_id = qv.LargeStringColumn()
+    submission_time = Timestamp.as_column()
+    first_submission = qv.BooleanColumn()
+    last_submission = qv.BooleanColumn()
+    num_obs = qv.Int64Column()
+    first_obs_time = Timestamp.as_column()
+    last_obs_time = Timestamp.as_column()
+    arc_length = qv.Float64Column()
+
+
+def infer_submission_time(
+    submission_ids: List[str], last_observation_times: Timestamp
+) -> Timestamp:
+    """
+    Infer the submission time from the submission ID and last observation time for
+    each submission.
+
+    In some cases, for historical submissions the submission ID is "00000000". In these instances,
+    the last observation time is used as the submission time. A warning is raised to alert the user
+    that the submission ID is "00000000".
+
+    Parameters
+    ----------
+    submission_ids : list of str
+        List of submission IDs.
+    last_observation_times : Timestamp
+        Last observation time for each submission.
+
+    Returns
+    -------
+    Timestamp
+        Submission time for each submission.
+    """
+    times_isot = []
+    for i, (submission_id, last_observation_time) in enumerate(
+        zip(submission_ids, last_observation_times)
+    ):
+        if submission_id == "00000000":
+            submission_time = last_observation_time
+            warnings.warn(
+                f"Submission ID is 00000000 for observation at index {i}. Using observation time as submission time."
+            )
+        else:
+            submission_time = submission_id.split("_")[0]
+
+        times_isot.append(submission_time)
+
+    return Timestamp.from_astropy(Time(times_isot, format="isot", scale="utc"))

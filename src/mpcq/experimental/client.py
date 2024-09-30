@@ -1,13 +1,15 @@
 from abc import ABC, abstractmethod
 from typing import Any, List
 
+import numpy as np
+import pyarrow as pa
 from adam_core.time import Timestamp
 from astropy.time import Time
 from google.cloud import bigquery
 
 from .observations import MPCObservations
 from .orbits import MPCOrbits
-from .submissions import MPCSubmissionInfo
+from .submissions import MPCSubmissionHistory, MPCSubmissionInfo, infer_submission_time
 
 
 class MPCClient(ABC):
@@ -63,6 +65,23 @@ class MPCClient(ABC):
         -------
         submission_info : MPCSubmissionInfo
             The observation status and mapping for the given submission IDs.
+        """
+        pass
+
+    @abstractmethod
+    def query_submission_history(self, provids: List[str]) -> MPCSubmissionHistory:
+        """
+        Query for submission history for a given list of provisional designations.
+
+        Parameters
+        ----------
+        provids : List[str]
+            List of provisional designations to query.
+
+        Returns
+        -------
+        submission_history : MPCSubmissionHistory
+            The submission history for the given provisional designations.
         """
         pass
 
@@ -369,3 +388,122 @@ class BigQueryMPCClient(MPCClient):
         table = results.to_arrow()
 
         return MPCSubmissionInfo.from_pyarrow(table)
+
+    def query_submission_history(self, provids: List[str]) -> MPCSubmissionHistory:
+        """
+        Query for submission history for a given list of provisional designations.
+
+        Parameters
+        ----------
+        provids : List[str]
+            List of provisional designations to query.
+
+
+        Returns
+        -------
+        submission_history : MPCSubmissionHistory
+            The submission history for the given provisional designations.
+        """
+        provids_str = ", ".join([f'"{id}"' for id in provids])
+        query = f"""WITH provid_mapping AS (
+            SELECT
+                unpacked_primary_provisional_designation AS primary_designation,
+                unpacked_primary_provisional_designation AS provid
+            FROM `moeyens-thor-dev.mpc_sbn_aipublic.current_identifications`
+            WHERE unpacked_primary_provisional_designation IN ({provids_str})
+            
+            UNION DISTINCT
+            
+            SELECT
+                unpacked_primary_provisional_designation AS primary_designation,
+                unpacked_secondary_provisional_designation AS provid
+            FROM `moeyens-thor-dev.mpc_sbn_aipublic.current_identifications`
+            WHERE unpacked_secondary_provisional_designation IN ({provids_str})
+        ),
+        permid_mapping AS (
+            SELECT
+                num_ident.permid,
+                pm.primary_designation
+            FROM provid_mapping AS pm
+            LEFT JOIN `moeyens-thor-dev.mpc_sbn_aipublic.numbered_identifications` AS num_ident
+                ON pm.primary_designation = num_ident.unpacked_primary_provisional_designation
+        )
+        SELECT DISTINCT
+            obs_sbn.obsid, 
+            obs_sbn.obstime,
+            obs_sbn.submission_id,
+            CASE
+                WHEN obs_sbn.permid IS NOT NULL THEN obs_sbn.permid
+                ELSE pm.primary_designation
+            END AS primary_designation
+        FROM `moeyens-thor-dev.mpc_sbn_aipublic.obs_sbn` AS obs_sbn
+        LEFT JOIN provid_mapping AS pm
+            ON obs_sbn.provid = pm.provid
+        LEFT JOIN permid_mapping AS pdm
+            ON obs_sbn.permid = pdm.permid
+        WHERE obs_sbn.provid IN (SELECT provid FROM provid_mapping)
+        OR obs_sbn.permid IN (SELECT permid FROM permid_mapping)
+        ORDER BY primary_designation ASC, obs_sbn.obstime ASC;
+        """
+        query_job = self.client.query(query)
+        results = query_job.result()
+
+        # Convert the results to a PyArrow table
+        table = (
+            results.to_arrow()
+            .group_by(["primary_designation", "submission_id"])
+            .aggregate(
+                [("obsid", "count_distinct"), ("obstime", "min"), ("obstime", "max")]
+            )
+            .sort_by(
+                [("primary_designation", "ascending"), ("submission_id", "ascending")]
+            )
+            .rename_columns(
+                [
+                    "primary_designation",
+                    "submission_id",
+                    "num_obs",
+                    "first_obs_time",
+                    "last_obs_time",
+                ]
+            )
+        )
+
+        # Create array that tracks the index of each row
+        table = table.append_column("idx", pa.array(np.arange(len(table))))
+
+        # Find the first and last index of each group (first and last submission)
+        # and append boolean columns to the table
+        first_last_idx = table.group_by(
+            ["primary_designation"], use_threads=False
+        ).aggregate([("idx", "first"), ("idx", "last")])
+        first = np.zeros(len(table), dtype=bool)
+        last = np.zeros(len(table), dtype=bool)
+        first[first_last_idx["idx_first"].to_numpy(zero_copy_only=False)] = True
+        last[first_last_idx["idx_last"].to_numpy(zero_copy_only=False)] = True
+        table = table.append_column("first_submission", pa.array(first))
+        table = table.append_column("last_submission", pa.array(last))
+
+        # Calculate the arc length of each submission
+        start_times = Time(
+            table["first_obs_time"].to_numpy(zero_copy_only=False), scale="utc"
+        )
+        end_times = Time(
+            table["last_obs_time"].to_numpy(zero_copy_only=False), scale="utc"
+        )
+        arc_length = end_times.utc.mjd - start_times.utc.mjd
+
+        return MPCSubmissionHistory.from_kwargs(
+            primary_designation=table["primary_designation"],
+            submission_id=table["submission_id"],
+            submission_time=infer_submission_time(
+                table["submission_id"].to_numpy(zero_copy_only=False),
+                end_times.utc.isot,
+            ),
+            first_submission=table["first_submission"],
+            last_submission=table["last_submission"],
+            num_obs=table["num_obs"],
+            first_obs_time=Timestamp.from_astropy(start_times),
+            last_obs_time=Timestamp.from_astropy(end_times),
+            arc_length=arc_length,
+        )
