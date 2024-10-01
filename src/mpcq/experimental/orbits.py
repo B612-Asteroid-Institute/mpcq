@@ -76,3 +76,9 @@ class MPCOrbits(qv.Table):
             ).to_cartesian(),
         )
         return orbits
+
+
+class MPCPrimaryObjects(qv.Table):
+    primary_designation = qv.LargeStringColumn()
+    created_at = Timestamp.as_column()
+    updated_at = Timestamp.as_column()

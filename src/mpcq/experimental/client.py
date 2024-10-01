@@ -8,7 +8,7 @@ from astropy.time import Time
 from google.cloud import bigquery
 
 from .observations import MPCObservations
-from .orbits import MPCOrbits
+from .orbits import MPCOrbits, MPCPrimaryObjects
 from .submissions import MPCSubmissionHistory, MPCSubmissionInfo, infer_submission_time
 
 
@@ -82,6 +82,24 @@ class MPCClient(ABC):
         -------
         submission_history : MPCSubmissionHistory
             The submission history for the given provisional designations.
+        """
+        pass
+
+    @abstractmethod
+    def query_primary_objects(self, provids: List[str]) -> MPCPrimaryObjects:
+        """
+        Query the MPC database for the primary objects and associated data for the given
+        provisional designations.
+
+        Parameters
+        ----------
+        provids : List[str]
+            List of provisional designations to query.
+
+        Returns
+        -------
+        primary_objects : MPCPrimaryObjects
+            The primary objects and associated data for the given provisional designations.
         """
         pass
 
@@ -506,4 +524,86 @@ class BigQueryMPCClient(MPCClient):
             first_obs_time=Timestamp.from_astropy(start_times),
             last_obs_time=Timestamp.from_astropy(end_times),
             arc_length=arc_length,
+        )
+
+    def query_primary_objects(self, provids: List[str]) -> MPCPrimaryObjects:
+        """
+        Query the MPC database for the primary objects and associated data for the given
+        provisional designations.
+
+        Parameters
+        ----------
+        provids : List[str]
+            List of provisional designations to query.
+
+        Returns
+        -------
+        primary_objects : MPCPrimaryObjects
+            The primary objects and associated data for the given provisional designations.
+        """
+        provids_str = ", ".join([f'"{id}"' for id in provids])
+
+        query = f"""
+        WITH provid_mapping AS (
+            SELECT
+                unpacked_primary_provisional_designation AS primary_designation,
+                unpacked_primary_provisional_designation AS provid
+            FROM `moeyens-thor-dev.mpc_sbn_aipublic.current_identifications`
+            WHERE unpacked_primary_provisional_designation IN ({provids_str})
+            
+            UNION DISTINCT
+            
+            SELECT
+                unpacked_primary_provisional_designation AS primary_designation,
+                unpacked_secondary_provisional_designation AS provid
+            FROM `moeyens-thor-dev.mpc_sbn_aipublic.current_identifications`
+            WHERE unpacked_secondary_provisional_designation IN ({provids_str})
+        ),
+        permid_mapping AS (
+            SELECT
+                num_ident.permid,
+                num_ident.unpacked_primary_provisional_designation AS provid,
+                pm.primary_designation
+            FROM provid_mapping AS pm
+            LEFT JOIN `moeyens-thor-dev.mpc_sbn_aipublic.numbered_identifications` AS num_ident
+                ON pm.primary_designation = num_ident.unpacked_primary_provisional_designation
+        )
+        SELECT DISTINCT
+            unpacked_primary_provisional_designation, 
+            status, 
+            created_at, 
+            updated_at,
+            CASE
+                WHEN pdm.permid IS NOT NULL THEN pdm.permid
+                ELSE pm.primary_designation
+            END AS primary_designation
+        FROM `moeyens-thor-dev.mpc_sbn_aipublic.primary_objects` AS primary_objects
+        LEFT JOIN provid_mapping AS pm
+            ON primary_objects.unpacked_primary_provisional_designation = pm.provid
+        LEFT JOIN permid_mapping AS pdm
+            ON primary_objects.unpacked_primary_provisional_designation = pdm.provid
+        WHERE primary_objects.unpacked_primary_provisional_designation IN (SELECT provid FROM provid_mapping)
+        OR primary_objects.unpacked_primary_provisional_designation IN (SELECT provid FROM permid_mapping)
+        ORDER BY 
+            primary_designation ASC
+        """
+        query_job = self.client.query(query)
+        results = query_job.result()
+        table = results.to_arrow()
+
+        created_at = Time(
+            table["created_at"].to_numpy(zero_copy_only=False),
+            format="datetime64",
+            scale="utc",
+        )
+        updated_at = Time(
+            table["updated_at"].to_numpy(zero_copy_only=False),
+            format="datetime64",
+            scale="utc",
+        )
+
+        return MPCPrimaryObjects.from_kwargs(
+            primary_designation=table["primary_designation"],
+            created_at=Timestamp.from_astropy(created_at),
+            updated_at=Timestamp.from_astropy(updated_at),
         )
