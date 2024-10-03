@@ -9,7 +9,11 @@ from google.cloud import bigquery
 
 from .observations import MPCObservations
 from .orbits import MPCOrbits, MPCPrimaryObjects
-from .submissions import MPCSubmissionHistory, MPCSubmissionInfo, infer_submission_time
+from .submissions import (
+    MPCSubmissionHistory,
+    MPCSubmissionResults,
+    infer_submission_time,
+)
 
 
 class MPCClient(ABC):
@@ -51,7 +55,7 @@ class MPCClient(ABC):
         pass
 
     @abstractmethod
-    def query_submission_info(self, submission_ids: List[str]) -> MPCSubmissionInfo:
+    def query_submission_info(self, submission_ids: List[str]) -> MPCSubmissionResults:
         """
         Query for observation status and mapping (observation ID to trksub, provid, etc.) for a
         given list of submission IDs.
@@ -63,7 +67,7 @@ class MPCClient(ABC):
 
         Returns
         -------
-        submission_info : MPCSubmissionInfo
+        submission_info : MPCSubmissionResults
             The observation status and mapping for the given submission IDs.
         """
         pass
@@ -322,7 +326,7 @@ class BigQueryMPCClient(MPCClient):
             updated_at=Timestamp.from_astropy(updated_at),
         )
 
-    def query_submission_info(self, submission_ids: List[str]) -> MPCSubmissionInfo:
+    def query_submission_info(self, submission_ids: List[str]) -> MPCSubmissionResults:
         """
         Query for observation status and mapping (observation ID to trksub, provid, etc.) for a
         given list of submission IDs.
@@ -334,7 +338,7 @@ class BigQueryMPCClient(MPCClient):
 
         Returns
         -------
-        submission_info : MPCSubmissionInfo
+        submission_info : MPCSubmissionResults
             The observation status and mapping for the given submission IDs.
         """
         submission_ids_str = ", ".join([f'"{id}"' for id in submission_ids])
@@ -370,7 +374,7 @@ class BigQueryMPCClient(MPCClient):
         results = query_job.result()
         table = results.to_arrow()
 
-        return MPCSubmissionInfo.from_pyarrow(table)
+        return MPCSubmissionResults.from_pyarrow(table)
 
     def query_submission_history(self, provids: List[str]) -> MPCSubmissionHistory:
         """

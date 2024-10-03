@@ -13,8 +13,18 @@ class SubmissionDetails(qv.Table):
     obssubid = qv.LargeStringColumn()
     submission_id = qv.LargeStringColumn()
 
-    def trksub_mapping(
-        self, mpc_submission_info: "MPCSubmissionInfo"
+
+class TrksubMapping(qv.Table):
+    trksub = qv.LargeStringColumn()
+    primary_designation = qv.LargeStringColumn(nullable=True)
+    permid = qv.LargeStringColumn(nullable=True)
+    provid = qv.LargeStringColumn(nullable=True)
+    submission_id = qv.LargeStringColumn()
+    orbit_id = qv.LargeStringColumn()
+
+    @classmethod
+    def from_submissions(
+        cls, details: "SubmissionDetails", results: "MPCSubmissionResults"
     ) -> "TrksubMapping":
         """
         Create a mapping of trksub to primary designation, provid, permid, submission ID for these
@@ -22,7 +32,7 @@ class SubmissionDetails(qv.Table):
 
         Parameters
         ----------
-        mpc_submission_info : MPCSubmissionInfo
+        mpc_submission_info : MPCSubmissionResults
             Table of submission results from the MPC. See `MPCClient.query_submission_info`.
 
         Returns
@@ -31,14 +41,14 @@ class SubmissionDetails(qv.Table):
             Table of trksub mappings. Each trksub will for each unique primary designation it
             was linked to by the MPC.
         """
-        assert pc.all(pc.is_in(mpc_submission_info.trksub, self.trksub)).as_py()
+        assert pc.all(pc.is_in(results.trksub, details.trksub)).as_py()
 
-        unique_submission_details = self.drop_duplicates(
+        unique_submission_details = details.drop_duplicates(
             ["orbit_id", "trksub", "submission_id"]
         )
 
-        unique_mappings = self.drop_duplicates(
-            ["trksub", "primary_designation", "provid", "permid", "submission_id"]
+        unique_mappings = results.drop_duplicates(
+            ["trksub", "primary_designation", "permid", "provid", "submission_id"]
         )
 
         trksub_mapping = (
@@ -51,8 +61,8 @@ class SubmissionDetails(qv.Table):
                 [
                     "trksub",
                     "primary_designation",
-                    "provid",
                     "permid",
+                    "provid",
                     "submission_id",
                     "orbit_id",
                 ]
@@ -68,16 +78,7 @@ class SubmissionDetails(qv.Table):
         return TrksubMapping.from_pyarrow(trksub_mapping)
 
 
-class TrksubMapping(qv.Table):
-    trksub = qv.LargeStringColumn()
-    primary_designation = qv.LargeStringColumn(nullable=True)
-    permid = qv.LargeStringColumn(nullable=True)
-    provid = qv.LargeStringColumn(nullable=True)
-    submission_id = qv.LargeStringColumn()
-    orbit_id = qv.LargeStringColumn()
-
-
-class MPCSubmissionInfo(qv.Table):
+class MPCSubmissionResults(qv.Table):
     requested_submission_id = qv.LargeStringColumn()
     obsid = qv.LargeStringColumn(nullable=True)
     obssubid = qv.LargeStringColumn(nullable=True)

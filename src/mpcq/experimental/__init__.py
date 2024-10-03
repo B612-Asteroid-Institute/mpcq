@@ -3,7 +3,7 @@ from .observations import MPCObservations
 from .orbits import MPCOrbits
 from .submissions import (
     MPCSubmissionHistory,
-    MPCSubmissionInfo,
+    MPCSubmissionResults,
     SubmissionDetails,
     TrksubMapping,
 )
