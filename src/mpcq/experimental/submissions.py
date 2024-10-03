@@ -69,36 +69,37 @@ class SubmissionDetails(qv.Table):
 
 
 class TrksubMapping(qv.Table):
-
     trksub = qv.LargeStringColumn()
     primary_designation = qv.LargeStringColumn(nullable=True)
-    provid = qv.LargeStringColumn(nullable=True)
     permid = qv.LargeStringColumn(nullable=True)
+    provid = qv.LargeStringColumn(nullable=True)
     submission_id = qv.LargeStringColumn()
     orbit_id = qv.LargeStringColumn()
 
 
 class MPCSubmissionInfo(qv.Table):
-    obsid = qv.LargeStringColumn()
+    requested_submission_id = qv.LargeStringColumn()
+    obsid = qv.LargeStringColumn(nullable=True)
     obssubid = qv.LargeStringColumn(nullable=True)
+    trksub = qv.LargeStringColumn(nullable=True)
     primary_designation = qv.LargeStringColumn(nullable=True)
-    trksub = qv.LargeStringColumn()
-    provid = qv.LargeStringColumn(nullable=True)
     permid = qv.LargeStringColumn(nullable=True)
-    submission_id = qv.LargeStringColumn()
+    provid = qv.LargeStringColumn(nullable=True)
+    submission_id = qv.LargeStringColumn(nullable=True)
     status = qv.LargeStringColumn(nullable=True)
 
 
 class MPCSubmissionHistory(qv.Table):
-    primary_designation = qv.LargeStringColumn()
-    submission_id = qv.LargeStringColumn()
-    submission_time = Timestamp.as_column()
-    first_submission = qv.BooleanColumn()
-    last_submission = qv.BooleanColumn()
-    num_obs = qv.Int64Column()
-    first_obs_time = Timestamp.as_column()
-    last_obs_time = Timestamp.as_column()
-    arc_length = qv.Float64Column()
+    requested_provid = qv.LargeStringColumn()
+    primary_designation = qv.LargeStringColumn(nullable=True)
+    submission_id = qv.LargeStringColumn(nullable=True)
+    submission_time = Timestamp.as_column(nullable=True)
+    first_submission = qv.BooleanColumn(nullable=True)
+    last_submission = qv.BooleanColumn(nullable=True)
+    num_obs = qv.Int64Column(nullable=True)
+    first_obs_time = Timestamp.as_column(nullable=True)
+    last_obs_time = Timestamp.as_column(nullable=True)
+    arc_length = qv.Float64Column(nullable=True)
 
 
 def infer_submission_time(

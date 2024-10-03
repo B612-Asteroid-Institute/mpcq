@@ -7,12 +7,11 @@ from adam_core.time import Timestamp
 
 
 class MPCOrbits(qv.Table):
-
-    id = qv.Int64Column()
-    primary_designation = qv.LargeStringColumn()
+    requested_provid = qv.LargeStringColumn()
+    primary_designation = qv.LargeStringColumn(nullable=True)
+    id = qv.Int64Column(nullable=True)
     provid = qv.LargeStringColumn(nullable=True)
-    permid = qv.LargeStringColumn(nullable=True)
-    epoch = Timestamp.as_column()
+    epoch = Timestamp.as_column(nullable=True)
     q = qv.Float64Column(nullable=True)
     e = qv.Float64Column(nullable=True)
     i = qv.Float64Column(nullable=True)
@@ -30,8 +29,8 @@ class MPCOrbits(qv.Table):
     a3 = qv.Float64Column(nullable=True)
     h = qv.Float64Column(nullable=True)
     g = qv.Float64Column(nullable=True)
-    created_at = Timestamp.as_column()
-    updated_at = Timestamp.as_column()
+    created_at = Timestamp.as_column(nullable=True)
+    updated_at = Timestamp.as_column(nullable=True)
 
     def orbits(self) -> Orbits:
         """
@@ -79,6 +78,8 @@ class MPCOrbits(qv.Table):
 
 
 class MPCPrimaryObjects(qv.Table):
-    primary_designation = qv.LargeStringColumn()
-    created_at = Timestamp.as_column()
-    updated_at = Timestamp.as_column()
+    requested_provid = qv.LargeStringColumn()
+    primary_designation = qv.LargeStringColumn(nullable=True)
+    provid = qv.LargeStringColumn(nullable=True)
+    created_at = Timestamp.as_column(nullable=True)
+    updated_at = Timestamp.as_column(nullable=True)
