@@ -289,12 +289,18 @@ class BigQueryMPCClient(MPCClient):
             scale="utc",
         )
 
+        # Handle NULL values in the epoch_mjd column: ideally
+        # we should have the Timestamp class be able to handle this
+        mjd_array = table["epoch_mjd"].to_numpy(zero_copy_only=False)
+        mjds = np.ma.masked_array(mjd_array, mask=np.isnan(mjd_array))
+        epoch = Time(mjds, format="mjd", scale="tt")
+
         return MPCOrbits.from_kwargs(
             requested_provid=table["requested_provid"],
             primary_designation=table["primary_designation"],
             id=table["id"],
             provid=table["provid"],
-            epoch=Timestamp.from_mjd(table["epoch_mjd"], scale="tt"),
+            epoch=Timestamp.from_astropy(epoch),
             q=table["q"],
             e=table["e"],
             i=table["i"],
