@@ -24,8 +24,8 @@ license = { file = "LICENSE.md" }
 keywords = ["astronomy", "orbital mechanics", "propagation"]
 
 dependencies = [
-    "adam_core==0.2.4a1",
-    "sqlalchemy<2",
+    "adam_core",
+    "sqlalchemy",
     "astropy",
     "pandas",
     "astropy",
