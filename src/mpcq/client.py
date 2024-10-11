@@ -482,7 +482,7 @@ class BigQueryMPCClient(MPCClient):
             first_obs_time=Timestamp.from_astropy(start_times),
             last_obs_time=Timestamp.from_astropy(end_times),
             arc_length=arc_length,
-        )
+        ).sort_by(["requested_provid", "submission_id"])
 
     def query_primary_objects(self, provids: List[str]) -> MPCPrimaryObjects:
         """

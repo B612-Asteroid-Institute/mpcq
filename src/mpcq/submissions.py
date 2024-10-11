@@ -11,7 +11,9 @@ class SubmissionDetails(qv.Table):
     orbit_id = qv.LargeStringColumn()
     trksub = qv.LargeStringColumn()
     obssubid = qv.LargeStringColumn()
-    submission_id = qv.LargeStringColumn()
+    submission_id = qv.LargeStringColumn(nullable=True)
+    deep_drilling_filtered = qv.BooleanColumn(nullable=True)
+    submitted = qv.BooleanColumn(nullable=True)
 
 
 class TrksubMapping(qv.Table):
