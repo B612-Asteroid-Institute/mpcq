@@ -9,20 +9,13 @@ from astropy.time import Time
 from .qvsql import SQLQuivrTable
 
 
-class SubmissionMembers(qv.Table, SQLQuivrTable):
-    orbit_id = qv.LargeStringColumn()
-    trksub = qv.LargeStringColumn()
-    obssubid = qv.LargeStringColumn()
-    submission_id = qv.LargeStringColumn(nullable=True)
-    deep_drilling_filtered = qv.BooleanColumn(nullable=True)
-    submitted = qv.BooleanColumn(nullable=True)
-
-
 class Submissions(qv.Table, SQLQuivrTable):
     id = qv.Int64Column()
     mpc_submission_id = qv.LargeStringColumn(nullable=True)
     orbits = qv.Int64Column()
     observations = qv.Int64Column()
+    observations_submitted = qv.Int64Column()
+    deep_drilling_observations = qv.Int64Column()
     new_observations = qv.Int64Column()
     new_observations_file = qv.LargeStringColumn(nullable=True)
     new_observations_submitted = qv.BooleanColumn()
@@ -31,6 +24,15 @@ class Submissions(qv.Table, SQLQuivrTable):
     itf_identifications_file = qv.LargeStringColumn(nullable=True)
     itf_identifications_submitted = qv.BooleanColumn()
     itf_identifications_submitted_at = qv.TimestampColumn("ms", nullable=True, tz="utc")
+
+
+class SubmissionMembers(qv.Table, SQLQuivrTable):
+    orbit_id = qv.LargeStringColumn()
+    trksub = qv.LargeStringColumn()
+    obssubid = qv.LargeStringColumn()
+    submission_id = qv.Int64Column()
+    deep_drilling_filtered = qv.BooleanColumn(nullable=True)
+    submitted = qv.BooleanColumn(nullable=True)
 
 
 class TrksubMapping(qv.Table):
@@ -43,16 +45,23 @@ class TrksubMapping(qv.Table):
 
     @classmethod
     def from_submissions(
-        cls, details: "SubmissionMembers", results: "MPCSubmissionResults"
+        cls,
+        submissions: "Submissions",
+        members: "SubmissionMembers",
+        results: "MPCSubmissionResults",
     ) -> "TrksubMapping":
         """
         Create a mapping of trksub to primary designation, provid, permid, submission ID for these
-        submission details.
+        submission members.
 
         Parameters
         ----------
-        mpc_submission_info : MPCSubmissionResults
-            Table of submission results from the MPC. See `MPCClient.query_submission_info`.
+        submissions : Submissions
+            Submissions table.
+        members : SubmissionMembers
+            Submission members table detailing the observations submitted.
+        results : MPCSubmissionResults
+            Results of the MPC submission.
 
         Returns
         -------
@@ -60,10 +69,15 @@ class TrksubMapping(qv.Table):
             Table of trksub mappings. Each trksub will for each unique primary designation it
             was linked to by the MPC.
         """
-        assert pc.all(pc.is_in(results.trksub, details.trksub)).as_py()
+        assert pc.all(pc.is_in(results.trksub, members.trksub)).as_py()
 
-        unique_submission_details = details.drop_duplicates(
+        unique_submission_members = members.drop_duplicates(
             ["orbit_id", "trksub", "submission_id"]
+        )
+        unique_submission_members = unique_submission_members.flattened_table().join(
+            submissions.flattened_table().select(["id", "mpc_submission_id"]),
+            ("submission_id"),
+            ("id"),
         )
 
         unique_mappings = results.drop_duplicates(
@@ -71,9 +85,9 @@ class TrksubMapping(qv.Table):
         )
 
         trksub_mapping = (
-            unique_submission_details.table.join(
-                unique_mappings.table,
-                ("trksub", "submission_id"),
+            unique_submission_members.join(
+                unique_mappings.flattened_table(),
+                ("trksub", "mpc_submission_id"),
                 ("trksub", "submission_id"),
             )
             .select(
