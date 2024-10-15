@@ -6,6 +6,7 @@ from .orbits import MPCOrbits
 from .submissions import (
     MPCSubmissionHistory,
     MPCSubmissionResults,
-    SubmissionDetails,
+    SubmissionMembers,
+    Submissions,
     TrksubMapping,
 )
