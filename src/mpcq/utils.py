@@ -10,8 +10,8 @@ from adam_core.orbit_determination import FittedOrbitMembers
 class DeepDrillingSummary(qv.Table):
     orbit_id = qv.LargeStringColumn()
     obs_id = qv.LargeStringColumn()
-    night = qv.Int64Column()
-    mjd = qv.Float64Column()
+    night = qv.Int64Column(nullable=True)
+    mjd = qv.Float64Column(nullable=True)
     keep = qv.BooleanColumn()
 
 

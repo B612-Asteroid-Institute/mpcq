@@ -60,12 +60,12 @@ class SubmissionManager:
 
         metadata = sq.MetaData()
         sq.Table(
-            "submission_details",
+            "submission_members",
             metadata,
+            sq.Column("submission_id", sq.Integer),
             sq.Column("orbit_id", sq.String),
             sq.Column("trksub", sq.String),
             sq.Column("obssubid", sq.String),
-            sq.Column("submission_id", sq.String),
             sq.Column("deep_drilling_filtered", sq.Boolean),
             sq.Column("submitted", sq.Boolean),
             sq.UniqueConstraint("orbit_id", "obssubid", name="uc_orbit_obssubid"),
@@ -74,10 +74,12 @@ class SubmissionManager:
         sq.Table(
             "submissions",
             metadata,
-            sq.Column("id", sq.String, primary_key=True),
+            sq.Column("id", sq.Integer, primary_key=True),
             sq.Column("mpc_submission_id", sq.String, nullable=True),
             sq.Column("orbits", sq.Integer),
             sq.Column("observations", sq.Integer),
+            sq.Column("observations_submitted", sq.Integer),
+            sq.Column("deep_drilling_observations", sq.Integer),
             sq.Column("new_observations", sq.Integer),
             sq.Column("new_observations_file", sq.String, nullable=True),
             sq.Column("new_observations_submitted", sq.Boolean),
@@ -114,32 +116,32 @@ class SubmissionManager:
 
         return cls(engine, metadata, os.path.abspath(directory))
 
-    def get_submission_details(
+    def get_submission_members(
         self, submission_ids: Optional[list[str]] = None
-    ) -> SubmissionDetails:
+    ) -> SubmissionMembers:
         """
-        Retrieve the submission details tracked in the database.
+        Retrieve the submission members tracked in the database.
 
         Parameters
         ----------
         submission_ids : list[str], optional
-            The submission_ids to retrieve. If None, all submission details are
+            The submission_ids to retrieve. If None, all submission members are
             returned.
 
         Returns
         -------
-        SubmissionDetails
-            The submission details.
+        SubmissionMembers
+            The submission members.
         """
-        stmt = sq.select(self.tables["submission_details"])
+        stmt = sq.select(self.tables["submission_members"])
         if submission_ids is not None:
             stmt = stmt.where(
-                self.tables["submission_details"].c.submission_id.in_(submission_ids)
+                self.tables["submission_members"].c.submission_id.in_(submission_ids)
             )
 
-        return SubmissionDetails.from_sql(
+        return SubmissionMembers.from_sql(
             self.engine,
-            self.tables["submission_details"],
+            self.tables["submission_members"],
             statement=stmt,
             chunk_size=10000,
         )
