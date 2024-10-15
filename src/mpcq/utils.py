@@ -121,3 +121,30 @@ def reduce_deep_drilling_observations(
             dds = qv.concatenate([dds, dds_night])
 
     return dds
+
+
+def orbit_id_to_trksub(orbit_ids: pa.Array) -> pa.Array:
+    """
+    Convert orbit IDs (UUIDs) to trkSubs (MPC-style tracklet sub-IDs) compatible with the ADES
+    submission pipelines employed by the MPC.
+
+    Example:
+        "073273eff323476e8dfa3faac8c0fd45" -> "tc0fd45"
+        "0453e2948770490abd03d3ba2bd2df07" -> "td2df07"
+
+    Parameters
+    ----------
+    orbit_ids : pa.Array
+        The orbit IDs to convert.
+
+    Returns
+    -------
+    trksubs : pa.Array
+        The corresponding trkSubs.
+    """
+    assert pc.all(pc.equal(pc.utf8_length(orbit_ids), 32)).as_py()
+    return pc.binary_join_element_wise(
+        pc.cast(pa.repeat("t", len(orbit_ids)), pa.large_string()),
+        pc.utf8_slice_codeunits(orbit_ids, start=26, stop=32),
+        pa.scalar("", type=pa.large_string()),
+    )
