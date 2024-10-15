@@ -6,14 +6,31 @@ import quivr as qv
 from adam_core.time import Timestamp
 from astropy.time import Time
 
+from .qvsql import SQLQuivrTable
 
-class SubmissionDetails(qv.Table):
+
+class SubmissionMembers(qv.Table, SQLQuivrTable):
     orbit_id = qv.LargeStringColumn()
     trksub = qv.LargeStringColumn()
     obssubid = qv.LargeStringColumn()
     submission_id = qv.LargeStringColumn(nullable=True)
     deep_drilling_filtered = qv.BooleanColumn(nullable=True)
     submitted = qv.BooleanColumn(nullable=True)
+
+
+class Submissions(qv.Table, SQLQuivrTable):
+    id = qv.Int64Column()
+    mpc_submission_id = qv.LargeStringColumn(nullable=True)
+    orbits = qv.Int64Column()
+    observations = qv.Int64Column()
+    new_observations = qv.Int64Column()
+    new_observations_file = qv.LargeStringColumn(nullable=True)
+    new_observations_submitted = qv.BooleanColumn()
+    new_observations_submitted_at = qv.TimestampColumn("ms", nullable=True, tz="utc")
+    itf_observations = qv.Int64Column()
+    itf_identifications_file = qv.LargeStringColumn(nullable=True)
+    itf_identifications_submitted = qv.BooleanColumn()
+    itf_identifications_submitted_at = qv.TimestampColumn("ms", nullable=True, tz="utc")
 
 
 class TrksubMapping(qv.Table):
@@ -26,7 +43,7 @@ class TrksubMapping(qv.Table):
 
     @classmethod
     def from_submissions(
-        cls, details: "SubmissionDetails", results: "MPCSubmissionResults"
+        cls, details: "SubmissionMembers", results: "MPCSubmissionResults"
     ) -> "TrksubMapping":
         """
         Create a mapping of trksub to primary designation, provid, permid, submission ID for these

@@ -59,7 +59,9 @@ class MPCClient(ABC):
         pass
 
     @abstractmethod
-    def query_submission_info(self, submission_ids: List[str]) -> MPCSubmissionResults:
+    def query_submission_results(
+        self, submission_ids: List[str]
+    ) -> MPCSubmissionResults:
         """
         Query for observation status and mapping (observation ID to trksub, provid, etc.) for a
         given list of submission IDs.
@@ -482,7 +484,9 @@ class BigQueryMPCClient(MPCClient):
             updated_at=Timestamp.from_astropy(updated_at),
         )
 
-    def query_submission_info(self, submission_ids: List[str]) -> MPCSubmissionResults:
+    def query_submission_results(
+        self, submission_ids: List[str]
+    ) -> MPCSubmissionResults:
         """
         Query for observation status and mapping (observation ID to trksub, provid, etc.) for a
         given list of submission IDs.
