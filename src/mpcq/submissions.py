@@ -9,6 +9,7 @@ from adam_core.orbit_determination import FittedOrbitMembers, FittedOrbits
 from adam_core.time import Timestamp
 from astropy.time import Time
 
+from .identifications import Identifications
 from .qvsql import SQLQuivrTable
 from .utils import orbit_id_to_trksub, reduce_deep_drilling_observations
 
@@ -114,21 +115,6 @@ class TrksubMapping(qv.Table):
             )
         )
         return TrksubMapping.from_pyarrow(trksub_mapping)
-
-
-class Identifications(qv.Table):
-    submission_id = qv.Int64Column()
-    orbit_id = qv.LargeStringColumn()
-    trksub = qv.LargeStringColumn()
-    obs_id = qv.LargeStringColumn()
-    mpc_obs_id = qv.LargeStringColumn(nullable=True)
-    mpc_trksub = qv.LargeStringColumn(nullable=True)
-    days = qv.Int64Column()
-    nanos = qv.Int64Column()
-    observatory_code = qv.LargeStringColumn()
-
-    def itf(self):
-        return self.apply_mask(pc.invert(pc.is_null(self.mpc_obs_id)))
 
 
 class MPCCrossmatch(qv.Table):
