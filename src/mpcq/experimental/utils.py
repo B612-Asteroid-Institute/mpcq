@@ -40,13 +40,19 @@ def reduce_deep_drilling_observations(
     DeepDrillingSummary
         Table of observations reduced to a maximum of `max_obs_per_night` per night for each orbit.
     """
+    observations_filtered = observations.apply_mask(
+        pc.is_in(observations.id, orbit_members.obs_id)
+    )
+
     observation_nights = (
-        observations.flattened_table()
+        observations_filtered.flattened_table()
         .append_column(
             "night",
-            calculate_observing_night(observations.observatory_code, observations.time),
+            calculate_observing_night(
+                observations_filtered.observatory_code, observations_filtered.time
+            ),
         )
-        .append_column("mjd", observations.time.mjd())
+        .append_column("mjd", observations_filtered.time.mjd())
         .select(["id", "night", "mjd"])
     )
 
@@ -119,6 +125,8 @@ def reduce_deep_drilling_observations(
             )
 
             dds = qv.concatenate([dds, dds_night])
+            if dds.fragmented():
+                dds = qv.defragment(dds)
 
     return dds
 

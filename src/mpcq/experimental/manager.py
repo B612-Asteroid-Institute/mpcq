@@ -67,6 +67,7 @@ class SubmissionManager:
             sq.Column("trksub", sq.String),
             sq.Column("obssubid", sq.String),
             sq.Column("deep_drilling_filtered", sq.Boolean),
+            sq.Column("itf_obs_id", sq.String, nullable=True),
             sq.Column("submitted", sq.Boolean),
             sq.UniqueConstraint("orbit_id", "obssubid", name="uc_orbit_obssubid"),
         )
