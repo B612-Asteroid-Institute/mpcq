@@ -1,9 +1,9 @@
 import json
-from astropy.time import Time
 
 import pyarrow.compute as pc
 import quivr as qv
 from adam_core.orbit_determination import FittedOrbits
+from astropy.time import Time
 
 
 class Identifications(qv.Table):

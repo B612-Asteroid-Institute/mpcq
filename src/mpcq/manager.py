@@ -1,6 +1,8 @@
 import os
+import warnings
 from typing import Optional
 
+import pyarrow as pa
 import pyarrow.compute as pc
 import sqlalchemy as sq
 
@@ -160,21 +162,39 @@ class SubmissionManager:
         return Submissions.from_sql(self.engine, self.tables["submissions"])
 
     def query_mpc_submission_results(
-        self, submission_ids: Optional[list[str]] = None
+        self,
+        mpc_submission_ids: Optional[list[str]] = None,
+        submission_ids: Optional[list[int]] = None,
     ) -> MPCSubmissionResults:
         """
         Query the MPC for the results of the submissions.
 
         Parameters
         ----------
-        submission_ids : list[str]
-            The submission_ids to query.
+        mpc_submission_ids : list[str]
+            The submission_ids to query (submission IDs assigned by the MPC).
+        submission_ids : list[int]
+            The submission_ids to query (submission IDs assigned by the tracking database).
         """
-        if submission_ids is None:
+        if mpc_submission_ids is not None and submission_ids is not None:
+            warnings.warn(
+                "Both mpc_submission_ids and submission_ids were provided. Only mpc_submission_ids will be used."
+            )
+            submission_ids = None
+
+        if submission_ids is not None:
+            submissions = self.get_submissions()
+            mpc_submission_ids = submissions.apply_mask(
+                pc.is_in(submissions.id, pa.array(submission_ids))
+            ).mpc_submission_id.to_pylist()
+
+            return self.client.query_submission_results(mpc_submission_ids)
+
+        if mpc_submission_ids is None:
             submissions = self.get_submissions()
             submissions_with_mpc_id = submissions.apply_mask(
                 pc.invert(pc.is_null(submissions.mpc_submission_id))
             )
-            submission_ids = submissions_with_mpc_id.mpc_submission_id.to_pylist()
+            mpc_submission_ids = submissions_with_mpc_id.mpc_submission_id.to_pylist()
 
-        return self.client.query_submission_results(submission_ids)
+            return self.client.query_submission_results(mpc_submission_ids)
