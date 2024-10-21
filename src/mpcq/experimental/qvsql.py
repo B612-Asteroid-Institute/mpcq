@@ -1,8 +1,9 @@
-from typing import Union
+from typing import Literal, Union
 
 import pyarrow as pa
 import quivr as qv
 import sqlalchemy as sq
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 
 class SQLQuivrTable:
@@ -12,6 +13,7 @@ class SQLQuivrTable:
         engine: sq.engine.Engine,
         table: Union[str, sq.Table],
         chunk_size: int = 10000,
+        if_exists: Literal["fail", "replace", "append"] = "fail",
     ) -> None:
         """
         Save the pyarrow table to an existing SQL table. If the table does not exist, it will be created.
@@ -24,20 +26,31 @@ class SQLQuivrTable:
             Either a SQLAlchemy Table object or a string of the table name.
         chunk_size : int
             Number of rows to insert at a time.
+        if_exists : Literal["fail", "replace", "append"]
+            What to do if the table already exists.
+                "fail": Raise a ValueError.
+                "replace": Drop the table before inserting.
+                "append": Insert or upsert rows to the existing table
+                    (if the table has a primary key).
 
         Returns
         -------
         None
         """
         if isinstance(table, str):
-            metadata = sq.MetaData(bind=engine)
+            metadata = sq.MetaData()
             metadata.reflect(bind=engine)
             table = metadata.tables[table]
 
         num_rows = len(self)
         arrow_table = self.table
+        primary_keys = {col.name for col in table.primary_key.columns}
 
-        with engine.begin() as conn:
+        with engine.connect() as conn:
+
+            if if_exists == "replace":
+                conn.execute(table.delete())
+
             for start in range(0, num_rows, chunk_size):
 
                 end = min(start + chunk_size, num_rows)
@@ -51,7 +64,19 @@ class SQLQuivrTable:
                     for row in range(chunk.num_rows)
                 ]
 
-                conn.execute(table.insert().values(data_to_insert))
+                stmt = sqlite_insert(table)
+                if if_exists == "append":
+                    stmt = stmt.on_conflict_do_update(
+                        index_elements=primary_keys,
+                        set_={
+                            col: stmt.excluded[col]
+                            for col in data_to_insert[0]
+                            if col not in primary_keys
+                        },
+                    )
+
+                conn.execute(stmt.values(data_to_insert))
+                conn.commit()
 
         return
 
@@ -82,7 +107,7 @@ class SQLQuivrTable:
         """
         # If table is passed as a string, load the table from metadata
         if isinstance(table, str):
-            metadata = sq.MetaData(bind=engine)
+            metadata = sq.MetaData()
             metadata.reflect(bind=engine)
             table = metadata.tables[table]
 
