@@ -55,7 +55,9 @@ class MPCClient(ABC):
         pass
 
     @abstractmethod
-    def query_submission_info(self, submission_ids: List[str]) -> MPCSubmissionResults:
+    def query_submission_results(
+        self, submission_ids: List[str]
+    ) -> MPCSubmissionResults:
         """
         Query for observation status and mapping (observation ID to trksub, provid, etc.) for a
         given list of submission IDs.
@@ -112,6 +114,7 @@ class BigQueryMPCClient(MPCClient):
 
     def __init__(self, **kwargs: dict[str, Any]) -> None:
         self.client = bigquery.Client(**kwargs)
+        self.dataset_id = "moeyens-thor-dev.mpc_sbn_aurora"
 
     def query_observations(self, provids: List[str]) -> MPCObservations:
         """
@@ -160,13 +163,13 @@ class BigQueryMPCClient(MPCClient):
             obs_sbn.created_at, 
             obs_sbn.status,
         FROM requested_provids AS rp
-        LEFT JOIN `moeyens-thor-dev.mpc_sbn_aipublic.current_identifications` AS ci
+        LEFT JOIN `{self.dataset_id}.public_current_identifications` AS ci
             ON ci.unpacked_secondary_provisional_designation = rp.provid
-        LEFT JOIN `moeyens-thor-dev.mpc_sbn_aipublic.current_identifications` AS ci_alt
+        LEFT JOIN `{self.dataset_id}.public_current_identifications` AS ci_alt
             ON ci.unpacked_primary_provisional_designation = ci_alt.unpacked_primary_provisional_designation
-        LEFT JOIN `moeyens-thor-dev.mpc_sbn_aipublic.numbered_identifications` AS ni
+        LEFT JOIN `{self.dataset_id}.public_numbered_identifications` AS ni
             ON ci.unpacked_primary_provisional_designation = ni.unpacked_primary_provisional_designation
-        LEFT JOIN `moeyens-thor-dev.mpc_sbn_aipublic.obs_sbn` AS obs_sbn
+        LEFT JOIN `{self.dataset_id}.public_obs_sbn` AS obs_sbn
             ON ci.unpacked_primary_provisional_designation = obs_sbn.provid
             OR ci_alt.unpacked_secondary_provisional_designation = obs_sbn.provid
             OR ni.permid = obs_sbn.permid
@@ -266,13 +269,13 @@ class BigQueryMPCClient(MPCClient):
             mpc_orbits.created_at,
             mpc_orbits.updated_at
         FROM requested_provids AS rp
-        LEFT JOIN `moeyens-thor-dev.mpc_sbn_aipublic.current_identifications` AS ci
+        LEFT JOIN `{self.dataset_id}.public_current_identifications` AS ci
             ON ci.unpacked_secondary_provisional_designation = rp.provid
-        LEFT JOIN `moeyens-thor-dev.mpc_sbn_aipublic.current_identifications` AS ci_alt
+        LEFT JOIN `{self.dataset_id}.public_current_identifications` AS ci_alt
             ON ci.unpacked_primary_provisional_designation = ci_alt.unpacked_primary_provisional_designation
-        LEFT JOIN `moeyens-thor-dev.mpc_sbn_aipublic.numbered_identifications` AS ni
+        LEFT JOIN `{self.dataset_id}.public_numbered_identifications` AS ni
             ON ci.unpacked_primary_provisional_designation = ni.unpacked_primary_provisional_designation
-        LEFT JOIN `moeyens-thor-dev.mpc_sbn_aipublic.mpc_orbits` AS mpc_orbits
+        LEFT JOIN `{self.dataset_id}.public_mpc_orbits` AS mpc_orbits
             ON ci.unpacked_primary_provisional_designation = mpc_orbits.unpacked_primary_provisional_designation
         ORDER BY 
             requested_provid ASC,
@@ -326,7 +329,9 @@ class BigQueryMPCClient(MPCClient):
             updated_at=Timestamp.from_astropy(updated_at),
         )
 
-    def query_submission_info(self, submission_ids: List[str]) -> MPCSubmissionResults:
+    def query_submission_results(
+        self, submission_ids: List[str]
+    ) -> MPCSubmissionResults:
         """
         Query for observation status and mapping (observation ID to trksub, provid, etc.) for a
         given list of submission IDs.
@@ -361,12 +366,12 @@ class BigQueryMPCClient(MPCClient):
             obs_sbn.submission_id, 
             obs_sbn.status
         FROM requested_submission_ids AS sb
-        LEFT JOIN `moeyens-thor-dev.mpc_sbn_aipublic.obs_sbn` AS obs_sbn
+        LEFT JOIN `{self.dataset_id}.public_obs_sbn` AS obs_sbn
             ON sb.submission_id = obs_sbn.submission_id
-        LEFT JOIN `moeyens-thor-dev.mpc_sbn_aipublic.current_identifications` AS ci
+        LEFT JOIN `{self.dataset_id}.public_current_identifications` AS ci
             ON ci.unpacked_secondary_provisional_designation = obs_sbn.provid
             OR ci.unpacked_primary_provisional_designation = obs_sbn.provid
-        LEFT JOIN `moeyens-thor-dev.mpc_sbn_aipublic.numbered_identifications` AS ni
+        LEFT JOIN `{self.dataset_id}.public_numbered_identifications` AS ni
             ON obs_sbn.permid = ni.permid
         ORDER BY requested_submission_id ASC, obs_sbn.obsid ASC;
         """
@@ -406,13 +411,13 @@ class BigQueryMPCClient(MPCClient):
             obs_sbn.obstime,
             obs_sbn.submission_id
         FROM requested_provids AS rp 
-        LEFT JOIN `moeyens-thor-dev.mpc_sbn_aipublic.current_identifications` AS ci
+        LEFT JOIN `{self.dataset_id}.public_current_identifications` AS ci
             ON ci.unpacked_secondary_provisional_designation = rp.provid
-        LEFT JOIN `moeyens-thor-dev.mpc_sbn_aipublic.current_identifications` AS ci_alt
+        LEFT JOIN `{self.dataset_id}.public_current_identifications` AS ci_alt
             ON ci.unpacked_primary_provisional_designation = ci_alt.unpacked_primary_provisional_designation
-        LEFT JOIN `moeyens-thor-dev.mpc_sbn_aipublic.numbered_identifications` AS ni
+        LEFT JOIN `{self.dataset_id}.public_numbered_identifications` AS ni
             ON ci.unpacked_primary_provisional_designation = ni.unpacked_primary_provisional_designation
-        LEFT JOIN `moeyens-thor-dev.mpc_sbn_aipublic.obs_sbn` AS obs_sbn
+        LEFT JOIN `{self.dataset_id}.public_obs_sbn` AS obs_sbn
             ON ci.unpacked_primary_provisional_designation = obs_sbn.provid
             OR ci_alt.unpacked_secondary_provisional_designation = obs_sbn.provid
             OR ni.permid = obs_sbn.permid
@@ -481,7 +486,7 @@ class BigQueryMPCClient(MPCClient):
             first_obs_time=Timestamp.from_astropy(start_times),
             last_obs_time=Timestamp.from_astropy(end_times),
             arc_length=arc_length,
-        )
+        ).sort_by(["requested_provid", "submission_id"])
 
     def query_primary_objects(self, provids: List[str]) -> MPCPrimaryObjects:
         """
@@ -514,13 +519,13 @@ class BigQueryMPCClient(MPCClient):
             po.created_at, 
             po.updated_at
         FROM requested_provids AS rp
-        LEFT JOIN `moeyens-thor-dev.mpc_sbn_aipublic.current_identifications` AS ci
+        LEFT JOIN `{self.dataset_id}.public_current_identifications` AS ci
             ON ci.unpacked_secondary_provisional_designation = rp.provid
-        LEFT JOIN `moeyens-thor-dev.mpc_sbn_aipublic.current_identifications` AS ci_alt
+        LEFT JOIN `{self.dataset_id}.public_current_identifications` AS ci_alt
             ON ci.unpacked_primary_provisional_designation = ci_alt.unpacked_primary_provisional_designation
-        LEFT JOIN `moeyens-thor-dev.mpc_sbn_aipublic.numbered_identifications` AS ni
+        LEFT JOIN `{self.dataset_id}.public_numbered_identifications` AS ni
             ON ci.unpacked_primary_provisional_designation = ni.unpacked_primary_provisional_designation
-        LEFT JOIN `moeyens-thor-dev.mpc_sbn_aipublic.primary_objects` AS po
+        LEFT JOIN `{self.dataset_id}.public_primary_objects` AS po
             ON ci.unpacked_primary_provisional_designation = po.unpacked_primary_provisional_designation
         ORDER BY requested_provid ASC;
         """
