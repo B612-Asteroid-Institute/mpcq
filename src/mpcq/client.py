@@ -109,6 +109,23 @@ class MPCClient(ABC):
         """
         pass
 
+    @abstractmethod
+    def query_submission_num_obs(self, submission_id: str) -> int:
+        """
+        Queries the number of observations in a given submission.
+
+        Parameters
+        ----------
+        submission_id : str
+            The submission ID to query.
+
+        Returns
+        -------
+        int
+            The number of observations in the submission.
+        """
+        pass
+
 
 class BigQueryMPCClient(MPCClient):
 
@@ -551,3 +568,26 @@ class BigQueryMPCClient(MPCClient):
             created_at=Timestamp.from_astropy(created_at),
             updated_at=Timestamp.from_astropy(updated_at),
         )
+
+    def query_submission_num_obs(self, submission_id: str) -> int:
+        """
+        Queries the number of observations in a given submission.
+
+        Parameters
+        ----------
+        submission_id : str
+            The submission ID to query.
+
+        Returns
+        -------
+        int
+            The number of observations in the submission.
+        """
+        query = f"""
+        SELECT COUNT(*) AS num_obs
+        FROM `{self.dataset_id}.public_obs_sbn`
+        WHERE submission_id = "{submission_id}";
+        """
+        query_job = self.client.query(query)
+        results = query_job.result().to_arrow()
+        return results["num_obs"].to_pylist()[0]
