@@ -1,9 +1,11 @@
+import datetime
 import logging
 import os
 import warnings
 from dataclasses import dataclass
 from typing import Optional
 
+import numpy as np
 import pyarrow as pa
 import pyarrow.compute as pc
 import quivr as qv
@@ -20,6 +22,11 @@ from .submissions import (
     Submissions,
     prepare_submission,
 )
+
+
+def round_to_nearest_millisecond(t: datetime.datetime) -> datetime.datetime:
+    microseconds = np.ceil(t.microsecond / 1000).astype(int) * 1000
+    return t.replace(microsecond=microseconds)
 
 
 class MPCCrossmatch(qv.Table):
@@ -408,3 +415,163 @@ class SubmissionManager:
             raise ValueError("Submission could not be saved to the database.")
 
         return submission
+
+    def label_new_observations_submitted(
+        self,
+        submission_id: str,
+        mpc_submission_id: str,
+        submitted_at: datetime.datetime,
+    ) -> None:
+        """
+        Label the new observations as submitted to the MPC.
+
+        Parameters
+        ----------
+        submission_id : str
+            The submission ID.
+        mpc_submission_id : str
+            The MPC submission ID.
+        submitted_at : datetime
+            The time at which the submission was made.
+
+        Returns
+        -------
+        None
+        """
+        # Insure datetime is in UTC and rounded to the nearest millisecond
+        submitted_at = submitted_at.astimezone(datetime.timezone.utc)
+        submitted_at = round_to_nearest_millisecond(submitted_at)
+
+        # Check current status and raise an error if already submitted
+        with self.engine.begin() as conn:
+
+            stmt = sq.select(
+                self.tables["submissions"].c.new_observations_submitted
+            ).where(self.tables["submissions"].c.id == submission_id)
+
+            result = conn.execute(stmt).fetchone()[0]
+
+            if result:
+                raise ValueError(
+                    f"New observations for submission {submission_id} have already been marked as submitted."
+                )
+
+        # Now, update the submission to mark the new observations as submitted
+        with self.engine.begin() as conn:
+
+            stmt = (
+                sq.update(self.tables["submissions"])
+                .where(self.tables["submissions"].c.id == submission_id)
+                .values(
+                    new_observations_submitted=True,
+                    new_observations_submitted_at=submitted_at,
+                    mpc_submission_id=mpc_submission_id,
+                )
+            )
+
+            conn.execute(stmt)
+
+            self.logger.info(
+                f"New observations for submission {submission_id} marked as submitted."
+            )
+
+            stmt = (
+                sq.update(self.tables["submission_members"])
+                .where(
+                    sq.and_(
+                        self.tables["submission_members"].c.submission_id
+                        == submission_id,
+                        self.tables["submission_members"].c.itf_obs_id.is_(None),
+                        self.tables["submission_members"].c.deep_drilling_filtered.is_(
+                            False
+                        ),
+                    )
+                )
+                .values(submitted=True)
+            )
+
+            conn.execute(stmt)
+
+            self.logger.info(
+                f"Submission members for submission {submission_id} marked as submitted."
+            )
+
+        return
+
+    def label_identifications_submitted(
+        self, submission_id: str, submitted_at: datetime.datetime
+    ) -> None:
+        """
+        Label the ITF identifications as submitted to the MPC.
+
+        Parameters
+        ----------
+        submission_id : str
+            The submission ID.
+        submitted_at : datetime
+            The time at which the submission was made.
+
+        Returns
+        -------
+        None
+        """
+        # Insure datetime is in UTC and rounded to the nearest millisecond
+        submitted_at = submitted_at.astimezone(datetime.timezone.utc)
+        submitted_at = round_to_nearest_millisecond(submitted_at)
+
+        # Check current status and raise an error if already submitted
+        with self.engine.begin() as conn:
+
+            # Check what the current status is and raise an error if its already been
+            # labeled as submitted
+            stmt = sq.select(
+                self.tables["submissions"].c.itf_identifications_submitted
+            ).where(self.tables["submissions"].c.id == submission_id)
+
+            result = conn.execute(stmt).fetchone()[0]
+
+            if result:
+                raise ValueError(
+                    f"ITF observations for submission {submission_id} have already been marked as submitted."
+                )
+
+        # Now, update the submission to mark the ITF identifications as submitted
+        with self.engine.begin() as conn:
+
+            stmt = (
+                sq.update(self.tables["submissions"])
+                .where(self.tables["submissions"].c.id == submission_id)
+                .values(
+                    itf_identifications_submitted=True,
+                    itf_identifications_submitted_at=submitted_at,
+                )
+            )
+
+            conn.execute(stmt)
+
+            self.logger.info(
+                f"ITF identifications for submission {submission_id} marked as submitted."
+            )
+
+            stmt = (
+                sq.update(self.tables["submission_members"])
+                .where(
+                    sq.and_(
+                        self.tables["submission_members"].c.submission_id
+                        == submission_id,
+                        self.tables["submission_members"].c.itf_obs_id.isnot(None),
+                        self.tables["submission_members"].c.deep_drilling_filtered.is_(
+                            False
+                        ),
+                    )
+                )
+                .values(submitted=True)
+            )
+
+            conn.execute(stmt)
+
+            self.logger.info(
+                f"ITF identification members for submission {submission_id} marked as submitted."
+            )
+
+        return
