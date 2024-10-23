@@ -46,7 +46,7 @@ class SQLQuivrTable:
         arrow_table = self.table
         primary_keys = {col.name for col in table.primary_key.columns}
 
-        with engine.connect() as conn:
+        with engine.begin() as conn:
 
             if if_exists == "replace":
                 conn.execute(table.delete())
@@ -76,7 +76,6 @@ class SQLQuivrTable:
                     )
 
                 conn.execute(stmt.values(data_to_insert))
-                conn.commit()
 
         return
 

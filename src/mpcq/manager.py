@@ -1,13 +1,41 @@
+import logging
 import os
 import warnings
+from dataclasses import dataclass
 from typing import Optional
 
 import pyarrow as pa
 import pyarrow.compute as pc
+import quivr as qv
 import sqlalchemy as sq
+from adam_core.observations import SourceCatalog
+from adam_core.observations.ades import ADES_to_string, ObsContext
+from adam_core.orbit_determination import FittedOrbitMembers, FittedOrbits
 
 from .client import BigQueryMPCClient, MPCClient
-from .submissions import MPCSubmissionResults, SubmissionMembers, Submissions
+from .identifications import identifications_to_json_string
+from .submissions import (
+    MPCSubmissionResults,
+    SubmissionMembers,
+    Submissions,
+    prepare_submission,
+)
+
+
+class MPCCrossmatch(qv.Table):
+    obs_id = qv.LargeStringColumn()
+    mpc_id = qv.LargeStringColumn()
+    time_difference = qv.Float64Column()
+    distance = qv.Float64Column()
+    status = qv.LargeStringColumn(nullable=True)
+    trksub = qv.LargeStringColumn(nullable=True)
+
+
+@dataclass
+class Submitter:
+    first_name: str
+    last_name: str
+    email: str
 
 
 class SubmissionManager:
@@ -19,6 +47,9 @@ class SubmissionManager:
         self.metadata = metadata
         self.tables = metadata.tables
         self.directory = directory
+        self.submission_directory = os.path.join(directory, "submissions")
+        self.submitter = None
+        self.logger = logging.getLogger("SubmissionManager")
 
     def connect_client(self, client: Optional[MPCClient] = None) -> None:
         """
@@ -38,6 +69,26 @@ class SubmissionManager:
 
         self.client = client
 
+    def set_submitter(self, first_name: str, last_name: str, email: str) -> None:
+        """
+        Set the user submitting the observations.
+
+        Parameters
+        ----------
+        first_name : str
+            The first name of the submitter. E.g. "John".
+        last_name : str
+            The last name of the submitter. E.g. "Doe".
+        email : str
+            The email address of the submitter. E.g. "john.doe@university.edu"
+
+        Returns
+        -------
+        None
+        """
+        self.submitter = Submitter(first_name, last_name, email)
+        self.logger.info(f"Submitter set to {first_name} {last_name} ({email}).")
+
     @classmethod
     def create(cls, directory: str) -> "SubmissionManager":
         """
@@ -54,6 +105,8 @@ class SubmissionManager:
             The new SubmissionManager instance.
         """
         os.makedirs(directory, exist_ok=True)
+        submission_directory = os.path.join(directory, "submissions")
+        os.makedirs(submission_directory, exist_ok=True)
 
         if os.path.exists(os.path.join(directory, "tracking.db")):
             raise FileExistsError("A database already exists in this directory.")
@@ -64,10 +117,10 @@ class SubmissionManager:
         sq.Table(
             "submission_members",
             metadata,
-            sq.Column("submission_id", sq.Integer),
+            sq.Column("submission_id", sq.String),
             sq.Column("orbit_id", sq.String),
             sq.Column("trksub", sq.String),
-            sq.Column("obssubid", sq.String),
+            sq.Column("obssubid", sq.String, primary_key=True),
             sq.Column("deep_drilling_filtered", sq.Boolean),
             sq.Column("itf_obs_id", sq.String, nullable=True),
             sq.Column("submitted", sq.Boolean),
@@ -77,7 +130,7 @@ class SubmissionManager:
         sq.Table(
             "submissions",
             metadata,
-            sq.Column("id", sq.Integer, primary_key=True),
+            sq.Column("id", sq.String, primary_key=True),
             sq.Column("mpc_submission_id", sq.String, nullable=True),
             sq.Column("orbits", sq.Integer),
             sq.Column("observations", sq.Integer),
@@ -164,7 +217,7 @@ class SubmissionManager:
     def query_mpc_submission_results(
         self,
         mpc_submission_ids: Optional[list[str]] = None,
-        submission_ids: Optional[list[int]] = None,
+        submission_ids: Optional[list[str]] = None,
     ) -> MPCSubmissionResults:
         """
         Query the MPC for the results of the submissions.
@@ -173,8 +226,8 @@ class SubmissionManager:
         ----------
         mpc_submission_ids : list[str]
             The submission_ids to query (submission IDs assigned by the MPC).
-        submission_ids : list[int]
-            The submission_ids to query (submission IDs assigned by the tracking database).
+        submission_ids : list[str]
+            The submission_ids to query (submission IDs created by the user).
         """
         if mpc_submission_ids is not None and submission_ids is not None:
             warnings.warn(
@@ -188,7 +241,7 @@ class SubmissionManager:
                 pc.is_in(submissions.id, pa.array(submission_ids))
             ).mpc_submission_id.to_pylist()
 
-            return self.client.query_submission_results(mpc_submission_ids)
+            results = self.client.query_submission_results(mpc_submission_ids)
 
         if mpc_submission_ids is None:
             submissions = self.get_submissions()
@@ -197,4 +250,161 @@ class SubmissionManager:
             )
             mpc_submission_ids = submissions_with_mpc_id.mpc_submission_id.to_pylist()
 
-            return self.client.query_submission_results(mpc_submission_ids)
+            results = self.client.query_submission_results(mpc_submission_ids)
+
+        return results
+
+    def prepare_submission(
+        self,
+        submission_id: str,
+        orbits: FittedOrbits,
+        orbit_members: FittedOrbitMembers,
+        observations: SourceCatalog,
+        mpc_crossmatch: MPCCrossmatch,
+        obs_contexts: dict[str, ObsContext],
+        identifications_comment: Optional[str] = None,
+        max_obs_per_night: int = 6,
+        astrometric_catalog: Optional[SourceCatalog] = None,
+    ) -> Submissions:
+        """
+        Prepare a submission to the minor planet center. This will save the submission to the
+        database and return the submission object.
+
+        Parameters
+        ----------
+        submission_id : str
+            The internal submission ID to use.
+        orbits : FittedOrbits
+            The orbits to submit.
+        orbit_members : FittedOrbitMembers
+            The orbit members to submit.
+        observations : SourceCatalog
+            The observations from which the orbits were derived.
+        mpc_crossmatch : MPCCrossmatch
+            The crossmatch between the observations and the MPC.
+        obs_contexts : dict[str, ObsContext]
+            The observing contexts which will be used to create the ADES files.
+        identifications_comment : str, optional
+            A comment to include in the ITF identifications file.
+        max_obs_per_night : int, optional
+            The maximum number of observations to submit per night.
+        astrometric_catalog : SourceCatalog, optional
+            The astrometric catalog to use for the observations.
+
+        Returns
+        -------
+        Submissions
+            The submission object which contains the submission ID and paths to the files
+            on disk.
+        """
+        if self.submitter is None:
+            raise ValueError(
+                "User must be set before submitting observations. See set_submitter method."
+            )
+
+        submission_members, new_observations, identifications = prepare_submission(
+            submission_id,
+            orbits,
+            orbit_members,
+            observations,
+            max_obs_per_night=max_obs_per_night,
+            mpc_crossmatch=mpc_crossmatch,
+            astrometric_catalog=astrometric_catalog,
+        )
+
+        new_observations_file_base = f"{submission_id}.psv"
+        itf_identifications_file_base = f"{submission_id}_identifications.json"
+
+        if len(new_observations) > 0:
+            new_observations_file = os.path.abspath(
+                os.path.join(self.directory, "submissions", new_observations_file_base)
+            )
+        else:
+            new_observations_file = None
+
+        if len(identifications.itf()) > 0:
+            itf_identifications_file = os.path.abspath(
+                os.path.join(
+                    self.directory, "submissions", itf_identifications_file_base
+                )
+            )
+
+            if os.path.exists(itf_identifications_file):
+                raise FileExistsError(
+                    f"ITF identifications file {itf_identifications_file} already exists."
+                )
+
+            if identifications_comment is None:
+                identifications_comment = ""
+
+            json_str = identifications_to_json_string(
+                identifications,
+                orbits,
+                f"{self.submitter.first_name[0]}. {self.submitter.last_name}",
+                self.submitter.email,
+                identifications_comment,
+            )
+
+            with open(itf_identifications_file, "w") as f:
+                f.write(json_str)
+        else:
+            itf_identifications_file = None
+
+        if new_observations_file is not None:
+
+            if os.path.exists(new_observations_file):
+                raise FileExistsError(
+                    f"New observations file {new_observations_file} already exists."
+                )
+
+            ades_str = ADES_to_string(
+                new_observations,
+                obs_contexts,
+                seconds_precision=3,
+                columns_precision={
+                    "ra": 8,
+                    "dec": 8,
+                    "mag": 2,
+                    "rmsRA": 4,
+                    "rmsDec": 4,
+                    "rmsMag": 2,
+                },
+            )
+
+            with open(new_observations_file, "w") as f:
+                f.write(ades_str)
+
+        submission = Submissions.from_kwargs(
+            id=[submission_id],
+            mpc_submission_id=None,
+            orbits=[len(orbits)],
+            observations=[len(submission_members)],
+            observations_submitted=[
+                len(submission_members.select("deep_drilling_filtered", False))
+            ],
+            deep_drilling_observations=[
+                len(submission_members.select("deep_drilling_filtered", True))
+            ],
+            new_observations=[len(new_observations)],
+            new_observations_file=[new_observations_file],
+            new_observations_submitted=[False],
+            new_observations_submitted_at=[None],
+            itf_observations=[len(identifications.itf())],
+            itf_identifications_file=[itf_identifications_file],
+            itf_identifications_submitted=[False],
+            itf_identifications_submitted_at=[None],
+        )
+
+        try:
+            submission.to_sql(self.engine, "submissions")
+            submission_members.to_sql(self.engine, "submission_members")
+            self.logger.info(
+                f"Submission {submission_id} and {len(submission_members)} submission members saved to the database."
+            )
+        except Exception:
+            self.logger.critical(
+                f"Submission {submission_id} could not be saved to the database."
+            )
+            raise ValueError("Submission could not be saved to the database.")
+
+        return submission
