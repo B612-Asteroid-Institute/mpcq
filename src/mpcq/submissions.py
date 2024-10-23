@@ -1,3 +1,4 @@
+import logging
 import warnings
 from typing import List, Optional
 
@@ -13,9 +14,11 @@ from .identifications import Identifications
 from .qvsql import SQLQuivrTable
 from .utils import orbit_id_to_trksub, reduce_deep_drilling_observations
 
+logger = logging.getLogger("SubmissionManager")
+
 
 class Submissions(qv.Table, SQLQuivrTable):
-    id = qv.Int64Column()
+    id = qv.LargeStringColumn()
     mpc_submission_id = qv.LargeStringColumn(nullable=True)
     orbits = qv.Int64Column()
     observations = qv.Int64Column()
@@ -32,7 +35,7 @@ class Submissions(qv.Table, SQLQuivrTable):
 
 
 class SubmissionMembers(qv.Table, SQLQuivrTable):
-    submission_id = qv.Int64Column()
+    submission_id = qv.LargeStringColumn()
     orbit_id = qv.LargeStringColumn()
     trksub = qv.LargeStringColumn()
     obssubid = qv.LargeStringColumn()
@@ -192,7 +195,7 @@ def infer_submission_time(
 
 
 def prepare_submission(
-    submission_id: int,
+    submission_id: str,
     orbits: FittedOrbits,
     orbit_members: FittedOrbitMembers,
     observations: SourceCatalog,
@@ -271,8 +274,8 @@ def prepare_submission(
 
         num_dd_orbits = len(dds.orbit_id.unique())
         num_dd_observations = len(dds.select("keep", False).obs_id.unique())
-        print("Orbits with deep drilling observations removed:", num_dd_orbits)
-        print("Deep drilling observations removed:", num_dd_observations)
+        logger.info("Orbits with deep drilling observations removed:", num_dd_orbits)
+        logger.info("Deep drilling observations removed:", num_dd_observations)
 
         orbit_members_table = orbit_members_table.join(
             dds.table.select(["obs_id", "keep"]).rename_columns(
@@ -320,7 +323,7 @@ def prepare_submission(
 
         if len(mpc_crossmatch_filtered) > 0:
 
-            print(
+            logger.info(
                 f"{len(mpc_crossmatch_filtered)} observations are within 2 seconds and 2 arcseconds of an MPC observation"
             )
 

@@ -7,7 +7,7 @@ from astropy.time import Time
 
 
 class Identifications(qv.Table):
-    submission_id = qv.Int64Column()
+    submission_id = qv.LargeStringColumn()
     orbit_id = qv.LargeStringColumn()
     trksub = qv.LargeStringColumn()
     obs_id = qv.LargeStringColumn()
