@@ -1,6 +1,7 @@
 import datetime
 import logging
 import os
+import sys
 import warnings
 from dataclasses import dataclass
 from typing import Optional
@@ -56,7 +57,50 @@ class SubmissionManager:
         self.directory = directory
         self.submission_directory = os.path.join(directory, "submissions")
         self.submitter = None
-        self.logger = logging.getLogger("SubmissionManager")
+
+        self.setup_logging()
+
+    def setup_logging(self) -> None:
+        """
+        Setup logging for the SubmissionManager.
+
+        Returns
+        -------
+        None
+        """
+        logger = logging.getLogger("SubmissionManager")
+        logger.setLevel(logging.INFO)
+
+        console_handler = logging.StreamHandler(sys.stdout)
+        stream_formatter = logging.Formatter(
+            "%(asctime)s.%(msecs)03d [%(levelname)s] %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+        console_handler.setFormatter(stream_formatter)
+        console_handler.setLevel(logging.INFO)
+        logger.addHandler(console_handler)
+
+        file_handler = logging.FileHandler(
+            os.path.join(self.directory, "manager.log"),
+            mode="a",
+            encoding="utf-8",
+            delay=False,
+        )
+        file_formatter = logging.Formatter(
+            "%(asctime)s.%(msecs)03d [%(levelname)s] %(message)s (%(filename)s, %(funcName)s, %(lineno)d)",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+        file_handler.setFormatter(file_formatter)
+        file_handler.setLevel(logging.DEBUG)
+        logger.addHandler(file_handler)
+
+        logger.info("SubmissionManager initialized.")
+        logger.info(
+            f"Database located at {os.path.join(self.directory, 'tracking.db')}"
+        )
+        self.logger = logger
+
+        return
 
     def connect_client(self, client: Optional[MPCClient] = None) -> None:
         """
@@ -575,3 +619,6 @@ class SubmissionManager:
             )
 
         return
+
+
+sss
