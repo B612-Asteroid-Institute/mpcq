@@ -274,8 +274,8 @@ def prepare_submission(
 
         num_dd_orbits = len(dds.orbit_id.unique())
         num_dd_observations = len(dds.select("keep", False).obs_id.unique())
-        logger.info("Orbits with deep drilling observations removed:", num_dd_orbits)
-        logger.info("Deep drilling observations removed:", num_dd_observations)
+        logger.info(f"Orbits with deep drilling observations removed: {num_dd_orbits}")
+        logger.info(f"Deep drilling observations removed: {num_dd_observations}")
 
         orbit_members_table = orbit_members_table.join(
             dds.table.select(["obs_id", "keep"]).rename_columns(
@@ -324,7 +324,7 @@ def prepare_submission(
         if len(mpc_crossmatch_filtered) > 0:
 
             logger.info(
-                f"{len(mpc_crossmatch_filtered)} observations are within 2 seconds and 2 arcseconds of an MPC observation"
+                f"{len(mpc_crossmatch_filtered)} observations are within 2 seconds and 2 arcseconds of an MPC observation."
             )
 
             not_itf_mask = pc.invert(pc.equal(mpc_crossmatch_filtered.status, "I"))
@@ -395,13 +395,25 @@ def prepare_submission(
                 )
             )
         )
+        identification_members_filtered = identification_members_filtered.append_column(
+            "trksub", orbit_id_to_trksub(identification_members_filtered["orbit_id"])
+        )
+
+        identification_members_filtered = identification_members_filtered.sort_by(
+            [
+                ("trksub", "ascending"),
+                ("time.days", "ascending"),
+                ("time.nanos", "ascending"),
+                ("observatory_code", "ascending"),
+            ]
+        )
 
         identifications = Identifications.from_kwargs(
             submission_id=pa.repeat(
                 submission_id, len(identification_members_filtered)
             ),
             orbit_id=identification_members_filtered["orbit_id"],
-            trksub=orbit_id_to_trksub(identification_members_filtered["orbit_id"]),
+            trksub=identification_members_filtered["trksub"],
             obs_id=identification_members_filtered["obs_id"],
             mpc_obs_id=identification_members_filtered["mpc_obs_id"],
             mpc_trksub=identification_members_filtered["mpc_trksub"],
@@ -427,7 +439,7 @@ def prepare_submission(
         .join(observations.flattened_table(), "obssubid", "id")
         .sort_by(
             [
-                ("orbit_id", "ascending"),
+                ("trksub", "ascending"),
                 ("time.days", "ascending"),
                 ("time.nanos", "ascending"),
                 ("observatory_code", "ascending"),
