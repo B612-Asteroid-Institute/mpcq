@@ -461,7 +461,7 @@ class SubmissionManager:
         # Check if the submission ID already exists
         submissions = self.get_submissions()
         if submission_id in submissions.id.to_pylist():
-            raise ValueError(f"Submission ID {submission_id} already exists.")
+            raise ValueError(f"Submission ID '{submission_id}' already exists.")
 
         submission_members, new_observations, identifications = prepare_submission(
             submission_id,
@@ -560,11 +560,11 @@ class SubmissionManager:
             submission.to_sql(self.engine, "submissions")
             submission_members.to_sql(self.engine, "submission_members")
             self.logger.info(
-                f"Submission {submission_id} and {len(submission_members)} submission members saved to the database."
+                f"Submission '{submission_id}' and {len(submission_members)} submission members saved to the database."
             )
         except Exception:
             self.logger.critical(
-                f"Submission {submission_id} could not be saved to the database."
+                f"Submission '{submission_id}' could not be saved to the database."
             )
             raise ValueError("Submission could not be saved to the database.")
 
@@ -587,13 +587,15 @@ class SubmissionManager:
         submissions = self.get_submissions()
         submission = submissions.select("id", submission_id)
         if len(submission) == 0:
-            raise ValueError(f"Submission {submission_id} not found in the database.")
+            raise ValueError(f"Submission '{submission_id}' not found in the database.")
 
         if (
             submission.new_observations_submitted[0].as_py()
             or submission.itf_identifications_submitted[0].as_py()
         ):
-            raise ValueError(f"Submission {submission_id} has already been submitted.")
+            raise ValueError(
+                f"Submission '{submission_id}' has already been submitted."
+            )
 
         new_observations_file = submission.new_observations_file[0].as_py()
         itf_identifications_file = submission.itf_identifications_file[0].as_py()
@@ -625,7 +627,7 @@ class SubmissionManager:
 
             conn.execute(stmt)
 
-        self.logger.info(f"Submission {submission_id} deleted from the database.")
+        self.logger.info(f"Submission '{submission_id}' deleted from the database.")
 
         return
 
@@ -666,7 +668,7 @@ class SubmissionManager:
 
             if result:
                 raise ValueError(
-                    f"New observations for submission {submission_id} have already been marked as submitted."
+                    f"New observations for submission '{submission_id}' have already been marked as submitted."
                 )
 
         # Now, update the submission to mark the new observations as submitted
@@ -685,7 +687,7 @@ class SubmissionManager:
             conn.execute(stmt)
 
             self.logger.info(
-                f"New observations for submission {submission_id} marked as submitted."
+                f"New observations for submission '{submission_id}' marked as submitted."
             )
 
             stmt = (
@@ -706,7 +708,7 @@ class SubmissionManager:
             conn.execute(stmt)
 
             self.logger.info(
-                f"Submission members for submission {submission_id} marked as submitted."
+                f"Submission members for submission '{submission_id}' marked as submitted."
             )
 
         return
@@ -745,7 +747,7 @@ class SubmissionManager:
 
             if result:
                 raise ValueError(
-                    f"ITF observations for submission {submission_id} have already been marked as submitted."
+                    f"ITF observations for submission '{submission_id}' have already been marked as submitted."
                 )
 
         # Now, update the submission to mark the ITF identifications as submitted
@@ -763,7 +765,7 @@ class SubmissionManager:
             conn.execute(stmt)
 
             self.logger.info(
-                f"ITF identifications for submission {submission_id} marked as submitted."
+                f"ITF identifications for submission '{submission_id}' marked as submitted."
             )
 
             stmt = (
@@ -784,7 +786,7 @@ class SubmissionManager:
             conn.execute(stmt)
 
             self.logger.info(
-                f"ITF identification members for submission {submission_id} marked as submitted."
+                f"ITF identification members for submission '{submission_id}' marked as submitted."
             )
 
         return
@@ -830,3 +832,198 @@ class SubmissionManager:
                 max_attempts -= 1
 
         return False
+
+    def submit(
+        self, submission_id: str, comment: str, dry_run: bool = True
+    ) -> Submissions:
+        """
+        Submit a prepared submission to the Minor Planet Center.
+
+        Parameters
+        ----------
+        submission_id : str
+            The ID of the submission to submit.
+        comment : str
+            A comment to include with the email acknowledgement (only applies to
+            new observations submissions).
+
+        Returns
+        -------
+        Submissions
+            The updated submissions table for this submission.
+        """
+        self.logger.info(f"Submitting '{submission_id}'...")
+
+        submissions = self.get_submissions()
+        submission = submissions.select("id", submission_id)
+        if len(submission) == 0:
+            raise ValueError(
+                f"Submission '{submission_id}' does not exist. Did you prepare the submission first?"
+            )
+
+        new_observations_file = submission.new_observations_file[0].as_py()
+        self.logger.info(f"Observations file: {new_observations_file}")
+
+        if new_observations_file is not None:
+            if not os.path.exists(new_observations_file):
+                raise FileNotFoundError(
+                    f"Observations file {new_observations_file} does not exist."
+                )
+
+            if not submission.new_observations_submitted[0].as_py():
+                mpc_submission_id, submitted_at = submit_new_observations(
+                    new_observations_file,
+                    self.submitter.email,
+                    comment,
+                    dry_run=dry_run,
+                )
+                self.logger.info(
+                    f"Observations submitted (MPC Submission ID: {mpc_submission_id}) at {submitted_at}."
+                )
+
+                if dry_run:
+                    submission = Submissions.from_kwargs(
+                        id=submission.id,
+                        mpc_submission_id=[mpc_submission_id],
+                        orbits=submission.orbits,
+                        observations=submission.observations,
+                        observations_submitted=submission.observations_submitted,
+                        deep_drilling_observations=submission.deep_drilling_observations,
+                        new_observations=submission.new_observations,
+                        new_observations_file=submission.deep_drilling_observations,
+                        new_observations_submitted=[True],
+                        new_observations_submitted_at=[submitted_at],
+                        itf_observations=submission.itf_observations,
+                        itf_identifications_file=submission.itf_identifications_file,
+                        itf_identifications_submitted=submission.itf_identifications_submitted,
+                        itf_identifications_submitted_at=submission.itf_identifications_submitted_at,
+                    )
+
+                else:
+                    self.label_new_observations_submitted(
+                        submission_id, mpc_submission_id, submitted_at
+                    )
+
+                    # Requery the database to get the updated submission table and
+                    # the corresponding
+                    submissions = self.get_submissions()
+                    submission = submissions.select("id", submission_id)
+
+            else:
+                mpc_submission_id = submission.mpc_submission_id[0].as_py()
+                self.logger.info(
+                    f"Observations for submission '{submission_id}' were already submitted (MPC Submission ID: {mpc_submission_id}."
+                )
+
+        else:
+            self.logger.info(f"No observations for submission '{submission_id}'.")
+
+        itf_identifications_file = submission.itf_identifications_file[0].as_py()
+        self.logger.info(f"ITF identifications file: {itf_identifications_file}")
+
+        if itf_identifications_file is not None:
+
+            if not os.path.exists(itf_identifications_file):
+                raise FileNotFoundError(
+                    f"ITF identifications file {itf_identifications_file} does not exist."
+                )
+
+            if not submission.itf_identifications_submitted[0].as_py():
+
+                if (
+                    new_observations_file is not None
+                    and not submission.new_observations_submitted[0].as_py()
+                ):
+                    raise ValueError(
+                        f"Cannot submit ITF identifications for submission '{submission_id}' before new observations are submitted."
+                    )
+                elif new_observations_file is None:
+
+                    submitted_at = submit_identifications(
+                        itf_identifications_file, dry_run=dry_run
+                    )
+                    self.logger.info(f"Identifications submitted at {submitted_at}.")
+
+                    if dry_run:
+                        submission = Submissions.from_kwargs(
+                            id=submission.id,
+                            mpc_submission_id=[mpc_submission_id],
+                            orbits=submission.orbits,
+                            observations=submission.observations,
+                            observations_submitted=submission.observations_submitted,
+                            deep_drilling_observations=submission.deep_drilling_observations,
+                            new_observations=submission.new_observations,
+                            new_observations_file=submission.deep_drilling_observations,
+                            new_observations_submitted=submission.new_observations_submitted,
+                            new_observations_submitted_at=submission.new_observations_submitted_at,
+                            itf_observations=submission.itf_observations,
+                            itf_identifications_file=submission.itf_identifications_file,
+                            itf_identifications_submitted=[True],
+                            itf_identifications_submitted_at=[submitted_at],
+                        )
+
+                    else:
+                        self.label_identifications_submitted(
+                            submission_id, submitted_at
+                        )
+
+                        # Requery the database to get the updated submission table and
+                        # the corresponding
+                        submissions = self.get_submissions()
+                        submission = submissions.select("id", submission_id)
+
+                else:
+
+                    # Wait for new observations to be ingested
+                    if not dry_run:
+                        if not self.await_new_observation_ingestion(
+                            submission, delay=60, max_attempts=30
+                        ):
+                            raise TimeoutError(
+                                f"New observations for submission '{submission_id}' were not ingested in time."
+                            )
+
+                    submitted_at = submit_identifications(
+                        itf_identifications_file, dry_run=dry_run
+                    )
+                    self.logger.info(f"Identifications submitted at {submitted_at}.")
+
+                    if dry_run:
+                        submission = Submissions.from_kwargs(
+                            id=submission.id,
+                            mpc_submission_id=[mpc_submission_id],
+                            orbits=submission.orbits,
+                            observations=submission.observations,
+                            observations_submitted=submission.observations_submitted,
+                            deep_drilling_observations=submission.deep_drilling_observations,
+                            new_observations=submission.new_observations,
+                            new_observations_file=submission.deep_drilling_observations,
+                            new_observations_submitted=submission.new_observations_submitted,
+                            new_observations_submitted_at=submission.new_observations_submitted_at,
+                            itf_observations=submission.itf_observations,
+                            itf_identifications_file=submission.itf_identifications_file,
+                            itf_identifications_submitted=[True],
+                            itf_identifications_submitted_at=[submitted_at],
+                        )
+
+                    else:
+                        self.label_identifications_submitted(
+                            submission_id, submitted_at
+                        )
+
+                        # Requery the database to get the updated submission table and
+                        # the corresponding
+                        submissions = self.get_submissions()
+                        submission = submissions.select("id", submission_id)
+
+            else:
+                self.logger.info(
+                    f"Identifications for submission '{submission_id}' were already submitted."
+                )
+
+        else:
+            self.logger.info(f"No identifications for submission '{submission_id}'.")
+
+        self.logger.info(f"Submission '{submission_id}' submitted.")
+
+        return submission
