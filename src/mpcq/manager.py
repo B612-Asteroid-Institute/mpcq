@@ -1,15 +1,18 @@
 import datetime
+import json
 import logging
 import os
 import sys
+import time
 import warnings
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Tuple
 
 import numpy as np
 import pyarrow as pa
 import pyarrow.compute as pc
 import quivr as qv
+import requests
 import sqlalchemy as sq
 from adam_core.observations import SourceCatalog
 from adam_core.observations.ades import ADES_to_string, ObsContext
@@ -28,6 +31,102 @@ from .submissions import (
 def round_to_nearest_millisecond(t: datetime.datetime) -> datetime.datetime:
     microseconds = np.ceil(t.microsecond / 1000).astype(int) * 1000
     return t.replace(microsecond=microseconds)
+
+
+def submit_new_observations(
+    file, email, comment, dry_run: bool = True
+) -> Tuple[str, datetime.datetime]:
+    """
+    Submit new observations to the Minor Planet Center.
+
+    Parameters
+    ----------
+    file : str
+        Path to the file containing the new observations in PSV format.
+    email : str
+        Email address of the submitter.
+    comment : str
+        Acknowledgement comment
+    dry_run : bool
+        If True, the submission is a dry run and no submission is made to the MPC.
+
+    Returns
+    -------
+    submission_id : str
+        MPC-assigned Submission ID. If no submission is made, the submission ID is "".
+    submission_time : datetime.datetime
+        Time of the submission.
+    """
+    if dry_run:
+        url = "https://minorplanetcenter.net/submit_psv_test"
+    else:
+        url = "https://minorplanetcenter.net/submit_psv"
+
+    files = {
+        "ack": (None, comment),
+        "ac2": (None, email),
+        "source": (None, open(file, "rb")),
+    }
+
+    response = requests.post(url, files=files)
+    submission_time = datetime.datetime.now().astimezone(datetime.timezone.utc)
+
+    if dry_run:
+        if response.text == "Submission format valid.\n":
+            return "", submission_time
+        else:
+            raise ValueError(
+                f"Submission failed: {response.text} (status code {response.status_code}) (dry run)"
+            )
+    else:
+        if response.status_code == 200:
+            idx = response.text.find("Submission ID is")
+            mpc_submission_id = response.text[idx + 17 : idx + 17 + 32]
+            return mpc_submission_id, submission_time
+        else:
+            raise ValueError(
+                f"Submission failed: {response.text} (status code {response.status_code})"
+            )
+
+
+def submit_identifications(file: str, dry_run: bool = True) -> datetime.datetime:
+    """
+    Submit identifications to the Minor Planet Center's ID pipeline.
+
+    Parameters
+    ----------
+    file : str
+        Path to the file containing the identifications in JSON format.
+    dry_run : bool
+        If True, the submission is a dry run and no submission is made to the MPC.
+
+    Returns
+    -------
+    submission_time : datetime.datetime
+        Time of the submission.
+    """
+    url = "https://minorplanetcenter.net/mpcops/submissions/identifications/"
+    with open(file, "r") as json_file:
+        json_data = json.load(json_file)
+
+    if not dry_run:
+        response = requests.get(url, json=json_data)
+        submission_time = datetime.datetime.now().astimezone(datetime.timezone.utc)
+        if (
+            response.text
+            == '{"message": "Thank you for submitting your identifications. This message acknowledges receipt of your data."}'
+        ):
+            return submission_time
+        else:
+            raise ValueError(
+                f"Submission failed: {response.text} (status code {response.status_code})"
+            )
+
+    else:
+        response = None
+        submission_time = datetime.datetime.now().astimezone(datetime.timezone.utc)
+
+    return submission_time
 
 
 class MPCCrossmatch(qv.Table):
@@ -216,7 +315,13 @@ class SubmissionManager:
         SubmissionManager
             The SubmissionManager instance.
         """
-        engine = sq.create_engine("sqlite:///" + os.path.join(directory, "tracking.db"))
+        tracking_db = os.path.join(directory, "tracking.db")
+        if not os.path.exists(tracking_db):
+            raise FileNotFoundError(
+                "No database found in this directory. Use create method to create a new database."
+            )
+
+        engine = sq.create_engine("sqlite:///" + tracking_db)
 
         metadata = sq.MetaData()
         metadata.reflect(bind=engine)
@@ -352,6 +457,11 @@ class SubmissionManager:
             raise ValueError(
                 "User must be set before submitting observations. See set_submitter method."
             )
+
+        # Check if the submission ID already exists
+        submissions = self.get_submissions()
+        if submission_id in submissions.id.to_pylist():
+            raise ValueError(f"Submission ID {submission_id} already exists.")
 
         submission_members, new_observations, identifications = prepare_submission(
             submission_id,
@@ -679,5 +789,44 @@ class SubmissionManager:
 
         return
 
+    def await_new_observation_ingestion(
+        self, submission: Submissions, delay=60, max_attempts=30
+    ) -> bool:
+        """
+        Wait for new observations to be ingested into the MPC database.
 
-sss
+        Parameters
+        ----------
+        submission : Submissions
+            The submission table describing the submission
+        delay : int, optional
+            The delay in seconds between each attempt, by default 60
+        max_attempts : int, optional
+            The maximum number of attempts, by default 30.
+
+        Returns
+        -------
+        bool
+            True if the observations have been ingested, False otherwise.
+        """
+        assert len(submission) == 1
+        mpc_submission_id = submission.mpc_submission_id.to_pylist()[0]
+        new_observations = submission.new_observations.to_pylist()[0]
+
+        counts = 0
+        while max_attempts > 0:
+
+            counts = self.client.query_submission_num_obs(mpc_submission_id)
+
+            if counts > 0.9 * new_observations:
+                self.logger.info(f"Submission '{mpc_submission_id}' has been ingested.")
+                return True
+            else:
+                self.logger.info("New observations have not been ingested yet.")
+                self.logger.info(
+                    f"Trying again in {delay} seconds... ({max_attempts} attempts left)."
+                )
+                time.sleep(delay)
+                max_attempts -= 1
+
+        return False
