@@ -460,6 +460,65 @@ class SubmissionManager:
 
         return submission
 
+    def delete_prepared_submission(self, submission_id: str) -> None:
+        """
+        Delete a submission that has been prepared but not yet submitted.
+
+        Parameters
+        ----------
+        submission_id : str
+            The submission ID to delete.
+
+        Returns
+        -------
+        None
+        """
+        # Get the files for the submission
+        submissions = self.get_submissions()
+        submission = submissions.select("id", submission_id)
+        if len(submission) == 0:
+            raise ValueError(f"Submission {submission_id} not found in the database.")
+
+        if (
+            submission.new_observations_submitted[0].as_py()
+            or submission.itf_identifications_submitted[0].as_py()
+        ):
+            raise ValueError(f"Submission {submission_id} has already been submitted.")
+
+        new_observations_file = submission.new_observations_file[0].as_py()
+        itf_identifications_file = submission.itf_identifications_file[0].as_py()
+
+        if new_observations_file is not None and os.path.exists(new_observations_file):
+            os.remove(new_observations_file)
+            self.logger.info(f"New observations file {new_observations_file} deleted.")
+
+        if itf_identifications_file is not None and os.path.exists(
+            itf_identifications_file
+        ):
+            os.remove(itf_identifications_file)
+            self.logger.info(
+                f"ITF identifications file {itf_identifications_file} deleted."
+            )
+
+        # Now, delete the submission and submission members from the database
+        with self.engine.begin() as conn:
+
+            stmt = sq.delete(self.tables["submissions"]).where(
+                self.tables["submissions"].c.id == submission_id
+            )
+
+            conn.execute(stmt)
+
+            stmt = sq.delete(self.tables["submission_members"]).where(
+                self.tables["submission_members"].c.submission_id == submission_id
+            )
+
+            conn.execute(stmt)
+
+        self.logger.info(f"Submission {submission_id} deleted from the database.")
+
+        return
+
     def label_new_observations_submitted(
         self,
         submission_id: str,
