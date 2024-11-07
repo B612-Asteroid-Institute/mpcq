@@ -297,7 +297,7 @@ class BigQueryMPCClient(MPCClient):
         # Handle NULL values in the epoch_mjd column: ideally
         # we should have the Timestamp class be able to handle this
         mjd_array = table["epoch_mjd"].to_numpy(zero_copy_only=False)
-        mjds = np.ma.masked_array(mjd_array, mask=np.isnan(mjd_array))
+        mjds = np.ma.masked_array(mjd_array, mask=np.isnan(mjd_array))  # type: ignore
         epoch = Time(mjds, format="mjd", scale="tt")
 
         return MPCOrbits.from_kwargs(

@@ -28,7 +28,7 @@ jobs:
       - name: Install Testing Dependencies
         run: |
           pip install pip --upgrade
-          pip install ".[dev,experimental]"
+          pip install ".[dev]"
       - name: Lint
         run: pdm run lint
       - name: Type check

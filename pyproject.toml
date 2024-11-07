@@ -25,14 +25,11 @@ keywords = ["astronomy", "orbital mechanics", "propagation"]
 
 dependencies = [
     "adam_core==0.2.4a1",
-    "sqlalchemy<2",
     "astropy",
-    "pandas",
-    "astropy",
-    "quivr",
+    "google-cloud-bigquery",
     "google-cloud-secret-manager",
-    "cloud-sql-python-connector[pg8000]",
-    "pg8000",
+    "numpy",
+    "quivr"
 ]
 
 [build-system]
@@ -83,10 +80,6 @@ dev = [
   "pytest-mock",
   "pytest",
   "ruff",
-]
-experimental = [
-  "numpy",
-  "google-cloud-bigquery",
 ]
 
 [tool.black]
