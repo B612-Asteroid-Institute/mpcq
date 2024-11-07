@@ -1,334 +1,549 @@
-import json
-import logging
-from datetime import datetime
-from typing import Any, Dict, Iterator, List, Optional
+from abc import ABC, abstractmethod
+from typing import Any, List
 
-import astropy.time
-import google.cloud.secretmanager
 import numpy as np
-import sqlalchemy as sq
-from adam_core.orbits import Orbits
-from google.cloud.sql.connector import Connector
+import pyarrow as pa
+from adam_core.time import Timestamp
+from astropy.time import Time
+from google.cloud import bigquery
 
-from .observation import Observation, ObservationsTable, ObservationStatus
-from .orbit import orbits_from_query_result
-from .submission import Submission
+from .observations import MPCObservations
+from .orbits import MPCOrbits, MPCPrimaryObjects
+from .submissions import (
+    MPCSubmissionHistory,
+    MPCSubmissionResults,
+    infer_submission_time,
+)
 
-log = logging.getLogger("mpcq.client")
 
-_DB_DRIVER = "pg8000"
+class MPCClient(ABC):
 
-
-class MPCObservationsClient:
-    def __init__(self, dbconn: sq.engine.Connection) -> None:
-        self._dbconn = dbconn
-
-    @classmethod
-    def connect(cls, engine: sq.engine.Engine) -> "MPCObservationsClient":
-        return cls(dbconn=engine.connect())
-
-    @classmethod
-    def connect_using_gcloud(
-        cls,
-        cloudsql_connection_name: str = "moeyens-thor-dev:us-west1:mpc-sbn-replica",
-        credentials_uri: str = "projects/moeyens-thor-dev/secrets/mpc-sbn-replica-readonly-credentials/versions/latest",  # noqa: E501
-    ) -> "MPCObservationsClient":
-        log.info("loading database credentials")
-        client = google.cloud.secretmanager.SecretManagerServiceClient()
-        secret = client.access_secret_version(name=credentials_uri)
-        creds = json.loads(secret.payload.data)
-        log.info("database credentials loaded successfully")
-
-        connector = Connector()
-
-        def make_connection() -> sq.engine.Connection:
-            conn = connector.connect(
-                cloudsql_connection_name,
-                _DB_DRIVER,
-                user=creds["username"],
-                password=creds["password"],
-                db="mpc_sbn",
-            )
-            return conn
-
-        engine = sq.create_engine(
-            f"postgresql+{_DB_DRIVER}://", creator=make_connection
-        )
-        return cls.connect(engine)
-
-    def close(self) -> None:
-        self._dbconn.close()
-
-    def get_object_observations(
-        self,
-        object_provisional_designation: str,
-        obscode: Optional[str] = None,
-        filter_band: Optional[str] = None,
-    ) -> Iterator[Observation]:
-        stmt = self._observations_select_stmt(
-            object_provisional_designation, obscode, filter_band
-        )
-        result = self._dbconn.execute(stmt)
-        for r in result:
-            yield self._parse_obs_sbn_row(r)
-
-    def get_object_submissions(
-        self,
-        object_provisional_designation: str,
-    ) -> Iterator[Submission]:
-        stmt = self._submissions_select_stmt(object_provisional_designation)
-        result = self._dbconn.execute(stmt)
-        for r in result:
-            yield self._parse_submissions_sbn_row(r)
-
-    @staticmethod
-    def _parse_obs_sbn_row(row: sq.engine.Row) -> Observation:
-        if row.created_at is None:
-            created_at = None
-        else:
-            created_at = astropy.time.Time(row.created_at, scale="utc")
-
-        if row.updated_at is None:
-            updated_at = None
-        else:
-            updated_at = astropy.time.Time(row.updated_at, scale="utc")
-
-        return Observation(
-            mpc_id=row.id,
-            status=ObservationStatus._from_db_value(row.status),
-            obscode=row.stn,
-            filter_band=row.band,
-            unpacked_provisional_designation=row.provid,
-            timestamp=astropy.time.Time(row.obstime, scale="utc"),
-            ra=row.ra,
-            dec=row.dec,
-            mag=row.mag,
-            ra_rms=row.rmsra,
-            dec_rms=row.rmsdec,
-            mag_rms=row.rmsmag,
-            submission_id=row.submission_id,
-            created_at=created_at,
-            updated_at=updated_at,
-        )
-
-    @staticmethod
-    def _parse_submissions_sbn_row(row: sq.engine.Row) -> Submission:
-        return Submission(
-            id=row.submission_id,
-            num_observations=row.num_observations,
-        )
-
-    def _observations_select_stmt(
-        self,
-        provisional_designation: str,
-        obscode: Optional[str],
-        filter_band: Optional[str],
-    ) -> sq.sql.expression.Select:
-        """Construct a database select statement to fetch observations for
-        given object (named by provisional designation, eg "2022 AJ2").
-
-        obscode and filter_band can optionally be provided to limit the
-        result set.
-
+    @abstractmethod
+    def query_observations(self, provids: List[str]) -> MPCObservations:
         """
-        log.info("loading observations for %s", provisional_designation)
-        stmt = (
-            sq.select(
-                sq.column("id"),
-                sq.column("stn"),
-                sq.column("status"),
-                sq.column("ra"),
-                sq.column("dec"),
-                sq.column("obstime"),
-                sq.column("provid"),
-                sq.column("rmsra"),
-                sq.column("rmsdec"),
-                sq.column("mag"),
-                sq.column("rmsmag"),
-                sq.column("band"),
-                sq.column("submission_id"),
-                sq.column("created_at"),
-                sq.column("updated_at"),
-            )
-            .select_from(sq.table("obs_sbn"))
-            .where(
-                sq.column("provid") == provisional_designation,
-            )
-        )
-        if obscode is not None:
-            stmt = stmt.where(sq.column("stn") == obscode)
-        if filter_band is not None:
-            stmt = stmt.where(sq.column("band") == filter_band)
-
-        return stmt
-
-    def _submissions_select_stmt(
-        self,
-        provisional_designation: str,
-    ) -> sq.sql.expression.Select:
-        """
-        Construct a database select statement to fetch submission IDs for
-        the given object (named by provisional designation, eg "2022 AJ2").
+        Query the MPC database for the observations and associated data for the given
+        provisional designations.
 
         Parameters
         ----------
-        provisional_designation : str
-            The provisional designation of the object to fetch submissions for.
+        provids : List[str]
+            List of provisional designations to query.
 
         Returns
         -------
-        sq.sql.expression.Select
-            The select statement to fetch the submission IDs for the given object.
+        observations : MPCObservations
+            The observations and associated data for the given provisional designations.
         """
-        log.info("loading submissions for %s", provisional_designation)
-        stmt = (
-            sq.select(
-                sq.column("submission_id"),
-                sq.func.count(sq.column("submission_id")).label("num_observations"),
-            )
-            .select_from(sq.table("obs_sbn"))
-            .where(
-                sq.column("provid") == provisional_designation,
-            )
-            .group_by(sq.column("submission_id"))
+        pass
+
+    @abstractmethod
+    def query_orbits(self, provids: List[str]) -> MPCOrbits:
+        """
+        Query the MPC database for the orbits and associated data for the given
+        provisional designations.
+
+        Parameters
+        ----------
+        provids : List[str]
+            List of provisional designations to query.
+
+        Returns
+        -------
+        orbits : MPCOrbits
+            The orbits and associated data for the given provisional designations.
+        """
+        pass
+
+    @abstractmethod
+    def query_submission_info(self, submission_ids: List[str]) -> MPCSubmissionResults:
+        """
+        Query for observation status and mapping (observation ID to trksub, provid, etc.) for a
+        given list of submission IDs.
+
+        Parameters
+        ----------
+        submission_ids : List[str]
+            List of submission IDs to query.
+
+        Returns
+        -------
+        submission_info : MPCSubmissionResults
+            The observation status and mapping for the given submission IDs.
+        """
+        pass
+
+    @abstractmethod
+    def query_submission_history(self, provids: List[str]) -> MPCSubmissionHistory:
+        """
+        Query for submission history for a given list of provisional designations.
+
+        Parameters
+        ----------
+        provids : List[str]
+            List of provisional designations to query.
+
+        Returns
+        -------
+        submission_history : MPCSubmissionHistory
+            The submission history for the given provisional designations.
+        """
+        pass
+
+    @abstractmethod
+    def query_primary_objects(self, provids: List[str]) -> MPCPrimaryObjects:
+        """
+        Query the MPC database for the primary objects and associated data for the given
+        provisional designations.
+
+        Parameters
+        ----------
+        provids : List[str]
+            List of provisional designations to query.
+
+        Returns
+        -------
+        primary_objects : MPCPrimaryObjects
+            The primary objects and associated data for the given provisional designations.
+        """
+        pass
+
+
+class BigQueryMPCClient(MPCClient):
+
+    def __init__(self, **kwargs: dict[str, Any]) -> None:
+        self.client = bigquery.Client(**kwargs)
+        self.dataset_id = "moeyens-thor-dev.mpc_sbn_aurora"
+
+    def query_observations(self, provids: List[str]) -> MPCObservations:
+        """
+        Query the MPC database for the observations and associated data for the given
+        provisional designations.
+
+        Parameters
+        ----------
+        provids : List[str]
+            List of provisional designations to query.
+
+        Returns
+        -------
+        observations : MPCObservations
+            The observations and associated data for the given provisional designations.
+        """
+        provids_str = ", ".join([f'"{id}"' for id in provids])
+
+        query = f"""
+        WITH requested_provids AS (
+            SELECT provid
+            FROM UNNEST(ARRAY[{provids_str}]) AS provid
+        )
+        SELECT DISTINCT
+            rp.provid AS requested_provid,
+            CASE 
+                WHEN ni.permid IS NOT NULL THEN ni.permid 
+                ELSE ci.unpacked_primary_provisional_designation
+            END AS primary_designation,
+            obs_sbn.obsid, 
+            obs_sbn.trksub, 
+            obs_sbn.permid, 
+            obs_sbn.provid, 
+            obs_sbn.submission_id, 
+            obs_sbn.obssubid, 
+            obs_sbn.obstime, 
+            obs_sbn.ra, 
+            obs_sbn.dec, 
+            obs_sbn.rmsra, 
+            obs_sbn.rmsdec, 
+            obs_sbn.mag, 
+            obs_sbn.rmsmag, 
+            obs_sbn.band, 
+            obs_sbn.stn, 
+            obs_sbn.updated_at, 
+            obs_sbn.created_at, 
+            obs_sbn.status,
+        FROM requested_provids AS rp
+        LEFT JOIN `{self.dataset_id}.public_current_identifications` AS ci
+            ON ci.unpacked_secondary_provisional_designation = rp.provid
+        LEFT JOIN `{self.dataset_id}.public_current_identifications` AS ci_alt
+            ON ci.unpacked_primary_provisional_designation = ci_alt.unpacked_primary_provisional_designation
+        LEFT JOIN `{self.dataset_id}.public_numbered_identifications` AS ni
+            ON ci.unpacked_primary_provisional_designation = ni.unpacked_primary_provisional_designation
+        LEFT JOIN `{self.dataset_id}.public_obs_sbn` AS obs_sbn
+            ON ci.unpacked_primary_provisional_designation = obs_sbn.provid
+            OR ci_alt.unpacked_secondary_provisional_designation = obs_sbn.provid
+            OR ni.permid = obs_sbn.permid
+        ORDER BY requested_provid ASC, obs_sbn.obstime ASC;
+        """
+        query_job = self.client.query(query)
+        results = query_job.result()
+        table = results.to_arrow()
+
+        obstime = Time(
+            table["obstime"].to_numpy(zero_copy_only=False),
+            format="datetime64",
+            scale="utc",
+        )
+        created_at = Time(
+            table["created_at"].to_numpy(zero_copy_only=False),
+            format="datetime64",
+            scale="utc",
+        )
+        updated_at = Time(
+            table["updated_at"].to_numpy(zero_copy_only=False),
+            format="datetime64",
+            scale="utc",
         )
 
-        return stmt
-
-    def object_counts_for_submission_id(
-        self, submission_id: str
-    ) -> list[tuple[str, int]]:
-        """
-        Queries for the number of observations for each object associated with a given submission ID.
-        """
-        log.info("loading object counts for submission ID %s", submission_id)
-        stmt = (
-            sq.select(
-                sq.column("provid"),
-                sq.func.count(sq.column("provid")).label("num_observations"),
-            )
-            .select_from(sq.table("obs_sbn"))
-            .where(
-                # HACK: the database currently only has an index for
-                # submission_block_id, even though we'd like to use
-                # submission_id.
-                sq.column("submission_block_id") == submission_id + "_01",
-                # We'd prefer this:
-                # sq.column("submission_id") == submission_id,
-                # but that index is still being built.
-            )
-            .group_by(sq.column("provid"))
-        )
-        result = self._dbconn.execute(stmt)
-        return [(row.provid, row.num_observations) for row in result]
-
-    def observations_table(
-        self, obscodes: list[str], start_timestamp: datetime, end_timestamp: datetime
-    ) -> ObservationsTable:
-        """
-        Queries for all observations within a given time range for a given set of observatory codes.
-        """
-        # log.info("loading observations for obscodes ID %s", obscodes)
-        stmt = (
-            sq.select(
-                sq.column("id").label("mpc_id"),
-                sq.column("stn"),
-                sq.column("status"),
-                sq.column("ra"),
-                sq.column("dec"),
-                sq.column("obstime"),
-                sq.column("permid"),
-                sq.column("provid"),
-                sq.column("rmsra"),
-                sq.column("rmsdec"),
-                sq.column("mag"),
-                sq.column("rmsmag"),
-                sq.column("band"),
-                sq.column("submission_id"),
-                sq.column("created_at"),
-                sq.column("updated_at"),
-            )
-            .select_from(sq.table("obs_sbn"))
-            .where(
-                sq.and_(
-                    sq.column("obstime").between(start_timestamp, end_timestamp),
-                    sq.column("stn").in_(obscodes),
-                )
-            )
-        )
-        result = self._dbconn.execute(stmt)
-
-        # Create lists to store the data
-        data: Dict[str, List[Any]] = {
-            "mpc_id": [],
-            "stn": [],
-            "status": [],
-            "ra": [],
-            "dec": [],
-            "obstime": [],
-            "permid": [],
-            "provid": [],
-            "rmsra": [],
-            "rmsdec": [],
-            "mag": [],
-            "rmsmag": [],
-            "band": [],
-            "submission_id": [],
-            "created_at": [],
-            "updated_at": [],
-        }
-
-        # Iterate over the result and store the data in lists
-        for row in result:
-            for column, value in zip(data.keys(), row):
-                # we'll cast times to mjd for convenience
-                if column in ["created_at", "updated_at"]:
-                    if value:
-                        data[column].append(astropy.time.Time(value, scale="utc").mjd)
-                    else:
-                        data[column].append(None)
-                else:
-                    data[column].append(value)
-        data["obstime_mjd"] = [
-            astropy.time.Time(x, scale="utc").mjd for x in data["obstime"]
-        ]
-
-        return ObservationsTable.from_kwargs(
-            mpc_id=np.array(data["mpc_id"], dtype=np.int64),
-            status=np.array(data["status"]),
-            obscode=np.array(data["stn"]),
-            filter_band=np.array(data["band"]),
-            permanent_designation=np.array(data["permid"]),
-            unpacked_provisional_designation=np.array(data["provid"]),
-            mjd=np.array(data["obstime_mjd"], dtype=np.float64),
-            timestamp=np.array(data["obstime"], dtype=np.datetime64),
-            ra=np.array(data["ra"], dtype=np.float64),
-            ra_sigma=np.array(data["rmsra"], dtype=np.float64),
-            dec=np.array(data["dec"], dtype=np.float64),
-            dec_sigma=np.array(data["rmsdec"], dtype=np.float64),
-            mag=np.array(data["mag"], dtype=np.float64),
-            mag_rms=np.array(data["rmsmag"], dtype=np.float64),
-            created_at=np.array(data["created_at"]),
-            updated_at=np.array(data["updated_at"]),
-            submission_id=np.array(data["submission_id"]),
+        return MPCObservations.from_kwargs(
+            requested_provid=table["requested_provid"],
+            obsid=table["obsid"],
+            primary_designation=table["primary_designation"],
+            trksub=table["trksub"],
+            provid=table["provid"],
+            permid=table["permid"],
+            submission_id=table["submission_id"],
+            obssubid=table["obssubid"],
+            obstime=Timestamp.from_astropy(obstime),
+            ra=table["ra"],
+            dec=table["dec"],
+            rmsra=table["rmsra"],
+            rmsdec=table["rmsdec"],
+            mag=table["mag"],
+            rmsmag=table["rmsmag"],
+            band=table["band"],
+            stn=table["stn"],
+            updated_at=Timestamp.from_astropy(updated_at),
+            created_at=Timestamp.from_astropy(created_at),
+            status=table["status"],
         )
 
-    def orbits_chunked(self, chunk_size: int = 100000) -> Iterator[Orbits]:
+    def query_orbits(self, provids: List[str]) -> MPCOrbits:
         """
-        Queries for all orbits in the database, yielding them as adam_core Orbits
-        in chunks of the requested size.
+        Query the MPC database for the orbits and associated data for the given
+        provisional designations.
+
+        Parameters
+        ----------
+        provids : List[str]
+            List of provisional designations to query.
+
+        Returns
+        -------
+        orbits : MPCOrbits
+            The orbits and associated data for the given provisional designations.
         """
-        stmt = sq.select(
-            sq.column("id").label("mpc_id"),
-            sq.column("unpacked_primary_provisional_designation").label("provid"),
-            sq.column("mpc_orb_jsonb"),
-        ).select_from(sq.table("mpc_orbits"))
-        offset = 0
-        while True:
-            chunk_stmt = stmt.limit(chunk_size).offset(offset)
-            result = self._dbconn.execute(chunk_stmt)
-            chunk = orbits_from_query_result(result)
-            if not chunk:
-                break
-            yield chunk
-            offset += chunk_size
+        provids_str = ", ".join([f'"{id}"' for id in provids])
+
+        query = f"""
+        WITH requested_provids AS (
+            SELECT provid
+            FROM UNNEST(ARRAY[{provids_str}]) AS provid
+        )
+        SELECT DISTINCT 
+            rp.provid AS requested_provid,
+            CASE
+                WHEN ni.permid IS NOT NULL THEN ni.permid
+                ELSE ci.unpacked_primary_provisional_designation
+            END AS primary_designation,
+            mpc_orbits.id, 
+            mpc_orbits.unpacked_primary_provisional_designation AS provid, 
+            mpc_orbits.epoch_mjd,
+            mpc_orbits.q, 
+            mpc_orbits.e,
+            mpc_orbits.i, 
+            mpc_orbits.node,
+            mpc_orbits.argperi,
+            mpc_orbits.peri_time,
+            mpc_orbits.q_unc,
+            mpc_orbits.e_unc,
+            mpc_orbits.i_unc,
+            mpc_orbits.node_unc,
+            mpc_orbits.argperi_unc,
+            mpc_orbits.peri_time_unc,
+            mpc_orbits.a1,
+            mpc_orbits.a2,
+            mpc_orbits.a3,
+            mpc_orbits.h,
+            mpc_orbits.g,
+            mpc_orbits.created_at,
+            mpc_orbits.updated_at
+        FROM requested_provids AS rp
+        LEFT JOIN `{self.dataset_id}.public_current_identifications` AS ci
+            ON ci.unpacked_secondary_provisional_designation = rp.provid
+        LEFT JOIN `{self.dataset_id}.public_current_identifications` AS ci_alt
+            ON ci.unpacked_primary_provisional_designation = ci_alt.unpacked_primary_provisional_designation
+        LEFT JOIN `{self.dataset_id}.public_numbered_identifications` AS ni
+            ON ci.unpacked_primary_provisional_designation = ni.unpacked_primary_provisional_designation
+        LEFT JOIN `{self.dataset_id}.public_mpc_orbits` AS mpc_orbits
+            ON ci.unpacked_primary_provisional_designation = mpc_orbits.unpacked_primary_provisional_designation
+        ORDER BY 
+            requested_provid ASC,
+            mpc_orbits.epoch_mjd ASC;
+        """
+        query_job = self.client.query(query)
+        results = query_job.result()
+        table = results.to_arrow()
+
+        created_at = Time(
+            table["created_at"].to_numpy(zero_copy_only=False),
+            format="datetime64",
+            scale="utc",
+        )
+        updated_at = Time(
+            table["updated_at"].to_numpy(zero_copy_only=False),
+            format="datetime64",
+            scale="utc",
+        )
+
+        # Handle NULL values in the epoch_mjd column: ideally
+        # we should have the Timestamp class be able to handle this
+        mjd_array = table["epoch_mjd"].to_numpy(zero_copy_only=False)
+        mjds = np.ma.masked_array(mjd_array, mask=np.isnan(mjd_array))  # type: ignore
+        epoch = Time(mjds, format="mjd", scale="tt")
+
+        return MPCOrbits.from_kwargs(
+            requested_provid=table["requested_provid"],
+            primary_designation=table["primary_designation"],
+            id=table["id"],
+            provid=table["provid"],
+            epoch=Timestamp.from_astropy(epoch),
+            q=table["q"],
+            e=table["e"],
+            i=table["i"],
+            node=table["node"],
+            argperi=table["argperi"],
+            peri_time=table["peri_time"],
+            q_unc=table["q_unc"],
+            e_unc=table["e_unc"],
+            i_unc=table["i_unc"],
+            node_unc=table["node_unc"],
+            argperi_unc=table["argperi_unc"],
+            peri_time_unc=table["peri_time_unc"],
+            a1=table["a1"],
+            a2=table["a2"],
+            a3=table["a3"],
+            h=table["h"],
+            g=table["g"],
+            created_at=Timestamp.from_astropy(created_at),
+            updated_at=Timestamp.from_astropy(updated_at),
+        )
+
+    def query_submission_info(self, submission_ids: List[str]) -> MPCSubmissionResults:
+        """
+        Query for observation status and mapping (observation ID to trksub, provid, etc.) for a
+        given list of submission IDs.
+
+        Parameters
+        ----------
+        submission_ids : List[str]
+            List of submission IDs to query.
+
+        Returns
+        -------
+        submission_info : MPCSubmissionResults
+            The observation status and mapping for the given submission IDs.
+        """
+        submission_ids_str = ", ".join([f'"{id}"' for id in submission_ids])
+        query = f"""
+        WITH requested_submission_ids AS (
+            SELECT submission_id
+            FROM UNNEST(ARRAY[{submission_ids_str}]) AS submission_id
+        )
+        SELECT DISTINCT
+            sb.submission_id AS requested_submission_id,
+            obs_sbn.obsid,
+            obs_sbn.obssubid, 
+            obs_sbn.trksub, 
+            CASE 
+                WHEN ni.permid IS NOT NULL THEN ni.permid 
+                ELSE ci.unpacked_primary_provisional_designation
+            END AS primary_designation,
+            obs_sbn.permid, 
+            obs_sbn.provid, 
+            obs_sbn.submission_id, 
+            obs_sbn.status
+        FROM requested_submission_ids AS sb
+        LEFT JOIN `{self.dataset_id}.public_obs_sbn` AS obs_sbn
+            ON sb.submission_id = obs_sbn.submission_id
+        LEFT JOIN `{self.dataset_id}.public_current_identifications` AS ci
+            ON ci.unpacked_secondary_provisional_designation = obs_sbn.provid
+            OR ci.unpacked_primary_provisional_designation = obs_sbn.provid
+        LEFT JOIN `{self.dataset_id}.public_numbered_identifications` AS ni
+            ON obs_sbn.permid = ni.permid
+        ORDER BY requested_submission_id ASC, obs_sbn.obsid ASC;
+        """
+        query_job = self.client.query(query)
+        results = query_job.result()
+        table = results.to_arrow()
+
+        return MPCSubmissionResults.from_pyarrow(table)
+
+    def query_submission_history(self, provids: List[str]) -> MPCSubmissionHistory:
+        """
+        Query for submission history for a given list of provisional designations.
+
+        Parameters
+        ----------
+        provids : List[str]
+            List of provisional designations to query.
+
+        Returns
+        -------
+        submission_history : MPCSubmissionHistory
+            The submission history for the given provisional designations.
+        """
+        provids_str = ", ".join([f'"{id}"' for id in provids])
+        query = f"""
+        WITH requested_provids AS (
+            SELECT provid
+            FROM UNNEST(ARRAY[{provids_str}]) AS provid
+        )
+        SELECT DISTINCT
+            rp.provid AS requested_provid,
+            CASE 
+                WHEN ni.permid IS NOT NULL THEN ni.permid 
+                ELSE ci.unpacked_primary_provisional_designation
+            END AS primary_designation,
+            obs_sbn.obsid, 
+            obs_sbn.obstime,
+            obs_sbn.submission_id
+        FROM requested_provids AS rp 
+        LEFT JOIN `{self.dataset_id}.public_current_identifications` AS ci
+            ON ci.unpacked_secondary_provisional_designation = rp.provid
+        LEFT JOIN `{self.dataset_id}.public_current_identifications` AS ci_alt
+            ON ci.unpacked_primary_provisional_designation = ci_alt.unpacked_primary_provisional_designation
+        LEFT JOIN `{self.dataset_id}.public_numbered_identifications` AS ni
+            ON ci.unpacked_primary_provisional_designation = ni.unpacked_primary_provisional_designation
+        LEFT JOIN `{self.dataset_id}.public_obs_sbn` AS obs_sbn
+            ON ci.unpacked_primary_provisional_designation = obs_sbn.provid
+            OR ci_alt.unpacked_secondary_provisional_designation = obs_sbn.provid
+            OR ni.permid = obs_sbn.permid
+        ORDER BY requested_provid ASC, obs_sbn.obstime ASC;
+        """
+        query_job = self.client.query(query)
+        results = query_job.result()
+
+        # Convert the results to a PyArrow table
+        table = (
+            results.to_arrow()
+            .group_by(["requested_provid", "primary_designation", "submission_id"])
+            .aggregate(
+                [("obsid", "count_distinct"), ("obstime", "min"), ("obstime", "max")]
+            )
+            .sort_by(
+                [("primary_designation", "ascending"), ("submission_id", "ascending")]
+            )
+            .rename_columns(
+                [
+                    "requested_provid",
+                    "primary_designation",
+                    "submission_id",
+                    "num_obs",
+                    "first_obs_time",
+                    "last_obs_time",
+                ]
+            )
+        )
+
+        # Create array that tracks the index of each row
+        table = table.append_column("idx", pa.array(np.arange(len(table))))
+
+        # Find the first and last index of each group (first and last submission)
+        # and append boolean columns to the table
+        first_last_idx = table.group_by(
+            ["primary_designation"], use_threads=False
+        ).aggregate([("idx", "first"), ("idx", "last")])
+        first = np.zeros(len(table), dtype=bool)
+        last = np.zeros(len(table), dtype=bool)
+        first[first_last_idx["idx_first"].to_numpy(zero_copy_only=False)] = True
+        last[first_last_idx["idx_last"].to_numpy(zero_copy_only=False)] = True
+        table = table.append_column("first_submission", pa.array(first))
+        table = table.append_column("last_submission", pa.array(last))
+
+        # Calculate the arc length of each submission
+        start_times = Time(
+            table["first_obs_time"].to_numpy(zero_copy_only=False), scale="utc"
+        )
+        end_times = Time(
+            table["last_obs_time"].to_numpy(zero_copy_only=False), scale="utc"
+        )
+        arc_length = end_times.utc.mjd - start_times.utc.mjd
+
+        return MPCSubmissionHistory.from_kwargs(
+            requested_provid=table["requested_provid"],
+            primary_designation=table["primary_designation"],
+            submission_id=table["submission_id"],
+            submission_time=infer_submission_time(
+                table["submission_id"].to_numpy(zero_copy_only=False),
+                end_times.utc.isot,
+            ),
+            first_submission=table["first_submission"],
+            last_submission=table["last_submission"],
+            num_obs=table["num_obs"],
+            first_obs_time=Timestamp.from_astropy(start_times),
+            last_obs_time=Timestamp.from_astropy(end_times),
+            arc_length=arc_length,
+        )
+
+    def query_primary_objects(self, provids: List[str]) -> MPCPrimaryObjects:
+        """
+        Query the MPC database for the primary objects and associated data for the given
+        provisional designations.
+
+        Parameters
+        ----------
+        provids : List[str]
+            List of provisional designations to query.
+
+        Returns
+        -------
+        primary_objects : MPCPrimaryObjects
+            The primary objects and associated data for the given provisional designations.
+        """
+        provids_str = ", ".join([f'"{id}"' for id in provids])
+
+        query = f"""WITH requested_provids AS (
+            SELECT provid
+            FROM UNNEST(ARRAY[{provids_str}]) AS provid
+        )
+        SELECT DISTINCT
+            rp.provid AS requested_provid,
+            CASE 
+                WHEN ni.permid IS NOT NULL THEN ni.permid 
+                ELSE ci.unpacked_primary_provisional_designation
+            END AS primary_designation,
+            po.unpacked_primary_provisional_designation as provid, 
+            po.created_at, 
+            po.updated_at
+        FROM requested_provids AS rp
+        LEFT JOIN `{self.dataset_id}.public_current_identifications` AS ci
+            ON ci.unpacked_secondary_provisional_designation = rp.provid
+        LEFT JOIN `{self.dataset_id}.public_current_identifications` AS ci_alt
+            ON ci.unpacked_primary_provisional_designation = ci_alt.unpacked_primary_provisional_designation
+        LEFT JOIN `{self.dataset_id}.public_numbered_identifications` AS ni
+            ON ci.unpacked_primary_provisional_designation = ni.unpacked_primary_provisional_designation
+        LEFT JOIN `{self.dataset_id}.public_primary_objects` AS po
+            ON ci.unpacked_primary_provisional_designation = po.unpacked_primary_provisional_designation
+        ORDER BY requested_provid ASC;
+        """
+        query_job = self.client.query(query)
+        results = query_job.result()
+        table = results.to_arrow()
+
+        created_at = Time(
+            table["created_at"].to_numpy(zero_copy_only=False),
+            format="datetime64",
+            scale="utc",
+        )
+        updated_at = Time(
+            table["updated_at"].to_numpy(zero_copy_only=False),
+            format="datetime64",
+            scale="utc",
+        )
+
+        return MPCPrimaryObjects.from_kwargs(
+            requested_provid=table["requested_provid"],
+            primary_designation=table["primary_designation"],
+            provid=table["provid"],
+            created_at=Timestamp.from_astropy(created_at),
+            updated_at=Timestamp.from_astropy(updated_at),
+        )
