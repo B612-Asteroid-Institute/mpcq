@@ -24,7 +24,7 @@ license = { file = "LICENSE.md" }
 keywords = ["astronomy", "orbital mechanics", "propagation"]
 
 dependencies = [
-    "adam_core==0.2.4a1",
+    "adam_core>=0.2.5",
     "astropy",
     "google-cloud-bigquery",
     "google-cloud-secret-manager",
