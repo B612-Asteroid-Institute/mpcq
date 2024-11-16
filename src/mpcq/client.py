@@ -55,7 +55,9 @@ class MPCClient(ABC):
         pass
 
     @abstractmethod
-    def query_submission_info(self, submission_ids: List[str]) -> MPCSubmissionResults:
+    def query_submission_results(
+        self, submission_ids: List[str]
+    ) -> MPCSubmissionResults:
         """
         Query for observation status and mapping (observation ID to trksub, provid, etc.) for a
         given list of submission IDs.
@@ -104,6 +106,23 @@ class MPCClient(ABC):
         -------
         primary_objects : MPCPrimaryObjects
             The primary objects and associated data for the given provisional designations.
+        """
+        pass
+
+    @abstractmethod
+    def query_submission_num_obs(self, submission_id: str) -> int:
+        """
+        Queries the number of observations in a given submission.
+
+        Parameters
+        ----------
+        submission_id : str
+            The submission ID to query.
+
+        Returns
+        -------
+        int
+            The number of observations in the submission.
         """
         pass
 
@@ -327,7 +346,9 @@ class BigQueryMPCClient(MPCClient):
             updated_at=Timestamp.from_astropy(updated_at),
         )
 
-    def query_submission_info(self, submission_ids: List[str]) -> MPCSubmissionResults:
+    def query_submission_results(
+        self, submission_ids: List[str]
+    ) -> MPCSubmissionResults:
         """
         Query for observation status and mapping (observation ID to trksub, provid, etc.) for a
         given list of submission IDs.
@@ -482,7 +503,7 @@ class BigQueryMPCClient(MPCClient):
             first_obs_time=Timestamp.from_astropy(start_times),
             last_obs_time=Timestamp.from_astropy(end_times),
             arc_length=arc_length,
-        )
+        ).sort_by(["requested_provid", "submission_id"])
 
     def query_primary_objects(self, provids: List[str]) -> MPCPrimaryObjects:
         """
@@ -547,3 +568,26 @@ class BigQueryMPCClient(MPCClient):
             created_at=Timestamp.from_astropy(created_at),
             updated_at=Timestamp.from_astropy(updated_at),
         )
+
+    def query_submission_num_obs(self, submission_id: str) -> int:
+        """
+        Queries the number of observations in a given submission.
+
+        Parameters
+        ----------
+        submission_id : str
+            The submission ID to query.
+
+        Returns
+        -------
+        int
+            The number of observations in the submission.
+        """
+        query = f"""
+        SELECT COUNT(*) AS num_obs
+        FROM `{self.dataset_id}.public_obs_sbn`
+        WHERE submission_id = "{submission_id}";
+        """
+        query_job = self.client.query(query)
+        results = query_job.result().to_arrow()
+        return results["num_obs"].to_pylist()[0]
