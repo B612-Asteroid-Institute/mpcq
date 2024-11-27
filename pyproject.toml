@@ -29,7 +29,9 @@ dependencies = [
     "google-cloud-bigquery",
     "google-cloud-secret-manager",
     "numpy",
-    "quivr"
+    "quivr",
+    "google-cloud-bigquery-storage>=2.27.0",
+    "tqdm>=4.67.1"
 ]
 
 [build-system]
@@ -69,17 +71,17 @@ coverage = "pytest --cov=mpcq --cov-report=xml"
 
 [project.optional-dependencies]
 dev = [
-  "black",
-  "ipython",
-  "isort",
-  "mypy",
-  "pdm",
-  "pytest-benchmark",
-  "pytest-cov",
-  "pytest-doctestplus",
-  "pytest-mock",
-  "pytest",
-  "ruff",
+    "black",
+    "ipython",
+    "isort",
+    "mypy",
+    "pdm",
+    "pytest-benchmark",
+    "pytest-cov",
+    "pytest-doctestplus",
+    "pytest-mock",
+    "pytest",
+    "ruff",
 ]
 
 [tool.black]

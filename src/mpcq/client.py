@@ -175,7 +175,7 @@ class BigQueryMPCClient(MPCClient):
         """
         query_job = self.client.query(query)
         results = query_job.result()
-        table = results.to_arrow()
+        table = results.to_arrow(progress_bar_type="tqdm", create_bqstorage_client=True)
 
         obstime = Time(
             table["obstime"].to_numpy(zero_copy_only=False),
@@ -214,6 +214,91 @@ class BigQueryMPCClient(MPCClient):
             updated_at=Timestamp.from_astropy(updated_at),
             created_at=Timestamp.from_astropy(created_at),
             status=table["status"],
+        )
+
+    def all_orbits(self) -> MPCOrbits:
+        """
+        Query the MPC database for all orbits and associated data.
+
+        Returns
+        -------
+        orbits : MPCOrbits
+            The orbits and associated data for all objects in the MPC database.
+        """
+        query = f"""
+        SELECT
+            mpc_orbits.id, 
+            mpc_orbits.unpacked_primary_provisional_designation AS provid, 
+            mpc_orbits.epoch_mjd,
+            mpc_orbits.q, 
+            mpc_orbits.e,
+            mpc_orbits.i, 
+            mpc_orbits.node,
+            mpc_orbits.argperi,
+            mpc_orbits.peri_time,
+            mpc_orbits.q_unc,
+            mpc_orbits.e_unc,
+            mpc_orbits.i_unc,
+            mpc_orbits.node_unc,
+            mpc_orbits.argperi_unc,
+            mpc_orbits.peri_time_unc,
+            mpc_orbits.a1,
+            mpc_orbits.a2,
+            mpc_orbits.a3,
+            mpc_orbits.h,
+            mpc_orbits.g,
+            mpc_orbits.created_at,
+            mpc_orbits.updated_at
+        FROM `{self.dataset_id}.public_mpc_orbits` AS mpc_orbits
+        ORDER BY mpc_orbits.epoch_mjd ASC;
+        """
+        query_job = self.client.query(query)
+        results = query_job.result()
+
+        table = results.to_arrow(progress_bar_type="tqdm", create_bqstorage_client=True)
+
+        created_at = Time(
+            table["created_at"].to_numpy(zero_copy_only=False),
+            format="datetime64",
+            scale="utc",
+        )
+        updated_at = Time(
+            table["updated_at"].to_numpy(zero_copy_only=False),
+            format="datetime64",
+            scale="utc",
+        )
+
+        # Handle NULL values in the epoch_mjd column: ideally
+        # we should have the Timestamp class be able to handle this
+        mjd_array = table["epoch_mjd"].to_numpy(zero_copy_only=False)
+        mjds = np.ma.masked_array(mjd_array, mask=np.isnan(mjd_array))  # type: ignore
+        epoch = Time(mjds, format="mjd", scale="tt")
+
+        return MPCOrbits.from_kwargs(
+            # Note, since we didn't request a specific provid we use the one MPC provides
+            requested_provid=table["provid"],
+            id=table["id"],
+            provid=table["provid"],
+            epoch=Timestamp.from_astropy(epoch),
+            q=table["q"],
+            e=table["e"],
+            i=table["i"],
+            node=table["node"],
+            argperi=table["argperi"],
+            peri_time=table["peri_time"],
+            q_unc=table["q_unc"],
+            e_unc=table["e_unc"],
+            i_unc=table["i_unc"],
+            node_unc=table["node_unc"],
+            argperi_unc=table["argperi_unc"],
+            peri_time_unc=table["peri_time_unc"],
+            a1=table["a1"],
+            a2=table["a2"],
+            a3=table["a3"],
+            h=table["h"],
+            g=table["g"],
+            created_at=Timestamp.from_astropy(created_at),
+            updated_at=Timestamp.from_astropy(updated_at),
         )
 
     def query_orbits(self, provids: List[str]) -> MPCOrbits:
@@ -281,7 +366,7 @@ class BigQueryMPCClient(MPCClient):
         """
         query_job = self.client.query(query)
         results = query_job.result()
-        table = results.to_arrow()
+        table = results.to_arrow(progress_bar_type="tqdm", create_bqstorage_client=True)
 
         created_at = Time(
             table["created_at"].to_numpy(zero_copy_only=False),
@@ -373,7 +458,7 @@ class BigQueryMPCClient(MPCClient):
         """
         query_job = self.client.query(query)
         results = query_job.result()
-        table = results.to_arrow()
+        table = results.to_arrow(progress_bar_type="tqdm", create_bqstorage_client=True)
 
         return MPCSubmissionResults.from_pyarrow(table)
 
@@ -423,9 +508,9 @@ class BigQueryMPCClient(MPCClient):
         results = query_job.result()
 
         # Convert the results to a PyArrow table
+        table = results.to_arrow(progress_bar_type="tqdm", create_bqstorage_client=True)
         table = (
-            results.to_arrow()
-            .group_by(["requested_provid", "primary_designation", "submission_id"])
+            table.group_by(["requested_provid", "primary_designation", "submission_id"])
             .aggregate(
                 [("obsid", "count_distinct"), ("obstime", "min"), ("obstime", "max")]
             )
@@ -527,7 +612,7 @@ class BigQueryMPCClient(MPCClient):
         """
         query_job = self.client.query(query)
         results = query_job.result()
-        table = results.to_arrow()
+        table = results.to_arrow(progress_bar_type="tqdm", create_bqstorage_client=True)
 
         created_at = Time(
             table["created_at"].to_numpy(zero_copy_only=False),
