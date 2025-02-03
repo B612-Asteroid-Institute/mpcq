@@ -29,3 +29,5 @@ class CrossMatchedMPCObservations(qv.Table):
     # Here request_id is the unique id of an observation passed in to cross-match
     request_id = qv.LargeStringColumn()
     mpc_observations = MPCObservations.as_column()
+    separation_arcseconds = qv.Float64Column()
+    separation_seconds = qv.Float64Column()

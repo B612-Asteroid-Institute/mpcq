@@ -17,6 +17,8 @@ from .submissions import (
     infer_submission_time,
 )
 
+METERS_PER_ARCSECONDS = 30.87
+
 
 class MPCClient(ABC):
 
@@ -689,8 +691,8 @@ class BigQueryMPCClient(MPCClient):
         assert pc.all(pc.invert(pc.is_null(ades_observations.obsSubID))).as_py()
 
         # Convert arcseconds to meters at Earth's surface (approximate)
-        meters_tolerance = arcseconds_tolerance * 30.87  # Convert arcsec to meters
-        
+        meters_tolerance = arcseconds_tolerance * METERS_PER_ARCSECONDS
+
         # Create the STRUCT entries for each observation
         struct_entries = []
         for obsSubID, obsTime, ra, dec, stn in zip(
@@ -704,9 +706,9 @@ class BigQueryMPCClient(MPCClient):
                 f"STRUCT('{obsSubID}' AS id, '{stn}' AS stn, {ra} AS ra, {dec} AS dec, "
                 f"TIMESTAMP('{obsTime}') AS obstime)"
             )
-        
+
         struct_str = ",\n        ".join(struct_entries)
-        
+
         # First query to get matches using materialized view
         matching_query = f"""
         WITH input_observations AS (
@@ -724,7 +726,8 @@ class BigQueryMPCClient(MPCClient):
         SELECT 
             input.id AS input_id,
             clustered.id AS obs_id,
-            ST_DISTANCE(clustered.st_geo, input.input_geo) AS separation_meters
+            ST_DISTANCE(clustered.st_geo, input.input_geo) AS separation_meters,
+            TIMESTAMP_DIFF(clustered.obstime, input.obstime, SECOND) AS separation_seconds
         FROM input_observations AS input
         JOIN `{self.dataset_id}_views.public_obs_sbn_clustered` AS clustered
             ON clustered.stn = input.stn
@@ -735,23 +738,31 @@ class BigQueryMPCClient(MPCClient):
         """
 
         # Get the matched IDs using PyArrow
-        matched_results = self.client.query(matching_query).result().to_arrow(
-            progress_bar_type="tqdm",
-            create_bqstorage_client=True
+        matched_results = (
+            self.client.query(matching_query)
+            .result()
+            .to_arrow(progress_bar_type="tqdm", create_bqstorage_client=True)
         )
+
+        pa.parquet.write_table(matched_results, "matched_results.parquet")
 
         if len(matched_results) == 0:
             return CrossMatchedMPCObservations.empty()
 
         # Create a query to get the full data using the matched IDs
-        matched_structs = ",".join([
-            f"STRUCT('{input_id}' as input_id, {obs_id} as obs_id, {separation_meters} as separation_meters)"
-            for input_id, obs_id, separation_meters in zip(
-                matched_results["input_id"].to_numpy(zero_copy_only=False),
-                matched_results["obs_id"].to_numpy(zero_copy_only=False),
-                matched_results["separation_meters"].to_numpy(zero_copy_only=False)
-            )
-        ])
+        matched_structs = ",".join(
+            [
+                f"STRUCT('{input_id}' as input_id, {obs_id} as obs_id, {separation_meters} as separation_meters, {separation_seconds} as separation_seconds)"
+                for input_id, obs_id, separation_meters, separation_seconds in zip(
+                    matched_results["input_id"].to_numpy(zero_copy_only=False),
+                    matched_results["obs_id"].to_numpy(zero_copy_only=False),
+                    matched_results["separation_meters"].to_numpy(zero_copy_only=False),
+                    matched_results["separation_seconds"].to_numpy(
+                        zero_copy_only=False
+                    ),
+                )
+            ]
+        )
 
         final_query = f"""
         WITH matches AS (
@@ -762,18 +773,22 @@ class BigQueryMPCClient(MPCClient):
         SELECT 
             m.input_id,
             m.separation_meters,
+            m.separation_seconds,
             obs.*
         FROM matches m
         JOIN `{self.dataset_id}.public_obs_sbn` obs
             ON obs.id = m.obs_id
-        ORDER BY m.input_id, m.separation_meters
+        ORDER BY m.input_id, m.separation_meters, m.separation_seconds
         """
 
         # Get final results as PyArrow table
-        results = self.client.query(final_query).result().to_arrow(
-            progress_bar_type="tqdm",
-            create_bqstorage_client=True
+        results = (
+            self.client.query(final_query)
+            .result()
+            .to_arrow(progress_bar_type="tqdm", create_bqstorage_client=True)
         )
+
+        pa.parquet.write_table(results, "final_results.parquet")
 
         # Defragment the pyarrow table first
         results = results.combine_chunks()
@@ -793,8 +808,15 @@ class BigQueryMPCClient(MPCClient):
             scale="utc",
         )
 
+        separation_arcseconds = (
+            results["separation_meters"].to_numpy(zero_copy_only=False)
+            * METERS_PER_ARCSECONDS
+        )
+
         return CrossMatchedMPCObservations.from_kwargs(
             request_id=results["input_id"],
+            separation_arcseconds=separation_arcseconds,
+            separation_seconds=results["separation_seconds"],
             mpc_observations=MPCObservations.from_kwargs(
                 obsid=results["obsid"],
                 trksub=results["trksub"],
@@ -814,6 +836,5 @@ class BigQueryMPCClient(MPCClient):
                 updated_at=Timestamp.from_astropy(updated_at),
                 created_at=Timestamp.from_astropy(created_at),
                 status=results["status"],
-            )
+            ),
         )
-
