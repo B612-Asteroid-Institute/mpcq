@@ -3,7 +3,7 @@ from adam_core.time import Timestamp
 
 
 class MPCObservations(qv.Table):
-    requested_provid = qv.LargeStringColumn()
+    requested_provid = qv.LargeStringColumn(nullable=True)
     primary_designation = qv.LargeStringColumn(nullable=True)
     obsid = qv.LargeStringColumn(nullable=True)
     trksub = qv.LargeStringColumn(nullable=True)
@@ -23,3 +23,9 @@ class MPCObservations(qv.Table):
     updated_at = Timestamp.as_column(nullable=True)
     created_at = Timestamp.as_column(nullable=True)
     status = qv.LargeStringColumn(nullable=True)
+
+
+class CrossMatchedMPCObservations(qv.Table):
+    # Here request_id is the unique id of an observation passed in to cross-match
+    request_id = qv.LargeStringColumn()
+    mpc_observations = MPCObservations.as_column()

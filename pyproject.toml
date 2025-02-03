@@ -9,7 +9,7 @@ authors = [
 ]
 description = "Client library for interacting with an MPC observations database"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11,<3.13"
 classifiers = [
   "Operating System :: OS Independent",
   "Development Status :: 4 - Beta",
