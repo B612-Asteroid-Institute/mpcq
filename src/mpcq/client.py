@@ -744,8 +744,6 @@ class BigQueryMPCClient(MPCClient):
             .to_arrow(progress_bar_type="tqdm", create_bqstorage_client=True)
         )
 
-        pa.parquet.write_table(matched_results, "matched_results.parquet")
-
         if len(matched_results) == 0:
             return CrossMatchedMPCObservations.empty()
 
@@ -787,8 +785,6 @@ class BigQueryMPCClient(MPCClient):
             .result()
             .to_arrow(progress_bar_type="tqdm", create_bqstorage_client=True)
         )
-
-        pa.parquet.write_table(results, "final_results.parquet")
 
         # Defragment the pyarrow table first
         results = results.combine_chunks()
