@@ -54,7 +54,7 @@ lint = { composite = [
   "black --check ./src/mpcq",
   "isort --check-only ./src/mpcq",
 ] }
-fix = "ruff ./src/mpcq --fix"
+fix = "ruff check --fix ./src/mpcq"
 typecheck = "mypy --strict ./src/mpcq"
 
 test = "pytest --benchmark-disable {args}"
