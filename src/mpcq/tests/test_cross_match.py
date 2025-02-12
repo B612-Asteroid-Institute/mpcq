@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest.mock import Mock
 
 import pyarrow as pa
 import pytest
@@ -6,6 +7,7 @@ from adam_core.observations import ADESObservations
 from adam_core.time import Timestamp
 from astropy.time import Time
 from google.cloud import bigquery
+from pytest_mock import MockFixture
 
 from mpcq.client import BigQueryMPCClient
 from mpcq.observations import CrossMatchedMPCObservations
@@ -14,9 +16,9 @@ TEST_DATA_DIR = Path(__file__).parent / "data"
 
 
 @pytest.fixture
-def mock_bigquery_client(mocker):
+def mock_bigquery_client(mocker: MockFixture) -> Mock:
     # Mock the BigQuery client
-    mock_client = mocker.Mock(spec=bigquery.Client)
+    mock_client: Mock = mocker.Mock(spec=bigquery.Client)
 
     # Mock query job results
     mock_query_job = mocker.Mock()
@@ -27,7 +29,7 @@ def mock_bigquery_client(mocker):
 
 
 @pytest.fixture
-def test_ades_observations():
+def test_ades_observations() -> ADESObservations:
     # Create sample ADES observations for testing
     obstime = Time(
         ["2023-01-01T00:00:00", "2023-01-01T00:10:00", "2023-01-01T00:20:00"],
@@ -47,8 +49,9 @@ def test_ades_observations():
 
 
 def test_cross_match_observations_empty_result(
-    mock_bigquery_client, test_ades_observations
-):
+    mock_bigquery_client: Mock,
+    test_ades_observations: ADESObservations,
+) -> None:
     # Setup mock to return empty results
     mock_bigquery_client.query.return_value.result.return_value.to_arrow.return_value = pa.table(
         {
@@ -68,8 +71,9 @@ def test_cross_match_observations_empty_result(
 
 
 def test_cross_match_observations_with_matches(
-    mock_bigquery_client, test_ades_observations
-):
+    mock_bigquery_client: Mock,
+    test_ades_observations: ADESObservations,
+) -> None:
     # Load test data from parquet files
     matched_results = pa.parquet.read_table(TEST_DATA_DIR / "matched_results.parquet")
     final_results = pa.parquet.read_table(TEST_DATA_DIR / "final_results.parquet")
@@ -92,7 +96,7 @@ def test_cross_match_observations_with_matches(
     assert "mpc_observations" in result.table.column_names
 
 
-def test_cross_match_observations_invalid_input(mock_bigquery_client):
+def test_cross_match_observations_invalid_input(mock_bigquery_client: Mock) -> None:
     # Create ADES observations with null obsSubID
     obstime = Time(["2023-01-01T00:00:00"], format="isot", scale="utc")
     invalid_observations = ADESObservations.from_kwargs(

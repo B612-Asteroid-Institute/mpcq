@@ -140,7 +140,7 @@ class MPCClient(ABC):
 
 class BigQueryMPCClient(MPCClient):
 
-    def __init__(self, **kwargs: dict[str, Any]) -> None:
+    def __init__(self, **kwargs: Any) -> None:
         self.client = bigquery.Client(**kwargs)
         self.dataset_id = "moeyens-thor-dev.mpc_sbn_aurora"
 
