@@ -21,9 +21,8 @@ The MPC dataset is substantial in size, which contributes to both its power and 
 
 This scale enables powerful analyses but also means that full table scans can quickly consume significant query resources. Understanding these numbers is crucial for:
 
-1. **Query Performance**: The large row count means indexes and query optimization are essential
-2. **Cost Management**: Scanning the full observations table processes ~181 GB of data (~$0.90 at standard pricing). However, you rarely need all columns.
-3. **Time Travel**: The system maintains ~383 GB of time travel data for point-in-time analysis
+- **Query Performance**: The large row count means indexes and query optimization are essential
+- **Cost Management**: Scanning the full observations table processes ~181 GB of data (~$0.90 at standard pricing). However, you rarely need all columns.
 
 Dataset Access
 ------------
@@ -49,22 +48,48 @@ After subscribing, you'll receive two dataset IDs that you'll use to initialize 
 Dataset Overview
 --------------
 
-- **Access**: Public, requires Google Cloud Platform account and Analytics Hub subscription
-- **Billing**: Usage billed through your GCP account according to BigQuery pricing
-- **Updates**: Regular updates from the MPC Small Bodies Node
+The dataset consists of two main components:
+
+1. Main MPC Dataset
+^^^^^^^^^^^^^^^^^
+
+A complete, real-time replica of the MPC's database containing all core tables:
+
+- ``public_obs_sbn``: Primary observations table
+- ``public_mpc_orbits``: Orbital elements and uncertainties 
+- ``public_neocp_*``: Near-Earth Object Confirmation Page data
+- ``public_current_identifications``: Current object identifications
+- ``public_numbered_identifications``: Numbered asteroid identifications
+- ``public_obs_alterations_*``: History of observation modifications
+
+This dataset is updated in real-time as changes occur in the MPC database.
+
+2. Clustered Views Dataset
+^^^^^^^^^^^^^^^^^^^^^^^
+
+A repository of specialized, performance-optimized views:
+
+- ``public_obs_sbn_clustered``: A materialized view of ``public_obs_sbn`` that:
+    - Contains a subset of commonly used columns: ``obstime``, ``stn``, ``obsid``, ``id``, ``ra`` and ``dec`` as float64, and ``st_geo`` (a geography point created using `ST_GEOGPOINT <https://cloud.google.com/bigquery/docs/reference/standard-sql/geography_functions#st_geogpoint>`_)
+    - Is clustered on ``stn``, ``obstime``, and ``st_geo`` for optimized query performance
+    - Enables efficient geospatial queries using BigQuery's geography functions
+    - Offers significantly better query performance for operations involving time, station, or spatial filtering
+
+Real-time updates for materialized views are prohibitively costly, so a daily refresh is used for now. New clustered views may be added as the need arises.
+
 
 Pricing and Free Tier
 ------------------
 
-BigQuery offers a free tier and a pay-as-you-go pricing model:
+BigQuery offers a free tier and a pay-as-you-go pricing model. Note that your free monthly 1TB of analysis credits are maintained on a paid plan.
 
 **Free Tier (Monthly)**:
-- 1 TB of query processing
-- 10 GB of active storage
+    - 1 TB of query processing
+    - 10 GB of active storage
 
 **Standard Pricing**:
-- Query pricing: $5.00 per TB of data processed
-- Storage pricing: $0.02 per GB per month for active storage
+    - Query pricing: $6.25 per TB of data processed
+    - Storage pricing: $0.02 per GB per month for active storage
 
 Cost Management
 -------------
@@ -72,15 +97,15 @@ Cost Management
 To manage BigQuery costs effectively:
 
 1. **Query Optimization**:
-   - Use column selection instead of ``SELECT *``
-   - Add ``WHERE`` clauses early in your query
-   - Test queries with ``LIMIT`` first
-   - Use the clustered views when possible
+    - Use column selection instead of ``SELECT *``
+    - Add ``WHERE`` clauses early in your query
+    - Test queries with ``LIMIT`` first
+    - Use the clustered views when possible
 
 2. **Cost Control**:
-   - Set up billing alerts in Google Cloud Console
-   - Use query quotas to prevent accidental large queries
-   - Consider using `maximum_bytes_billed` in your queries
+    - Set up billing alerts in Google Cloud Console
+    - Use query quotas to prevent accidental large queries
+    - Consider using `maximum_bytes_billed` in your queries
 
 
 Key Tables
@@ -94,19 +119,19 @@ The primary observations table containing all asteroid observations:
 .. code-block:: sql
 
     SELECT *
-    FROM `moeyens-thor-dev.mpc_sbn_aurora.public_obs_sbn`
+    FROM `your-dataset-id.asteroid_institute_mpc_replica.public_obs_sbn`
     WHERE provid = '2013 RR165'
     LIMIT 5
 
 Key columns:
-- ``obsid``: Unique observation identifier
-- ``provid``: Provisional designation
-- ``obstime``: Observation timestamp
-- ``ra``, ``dec``: Position in degrees
-- ``mag``: Magnitude
-- ``band``: Filter band
-- ``stn``: Observatory code
-- ``submission_id``: Submission identifier
+    - ``obsid``: Unique observation identifier
+    - ``provid``: Provisional designation
+    - ``obstime``: Observation timestamp
+    - ``ra``, ``dec``: Position in degrees
+    - ``mag``: Magnitude
+    - ``band``: Filter band
+    - ``stn``: Observatory code
+    - ``submission_id``: Submission identifier
 
 public_current_identifications
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -116,13 +141,13 @@ Links between different designations for the same object:
 .. code-block:: sql
 
     SELECT *
-    FROM `moeyens-thor-dev.mpc_sbn_aurora.public_current_identifications`
+    FROM `your-dataset-id.asteroid_institute_mpc_replica.public_current_identifications`
     WHERE unpacked_secondary_provisional_designation = '2013 RR165'
 
 Key columns:
-- ``unpacked_primary_provisional_designation``
-- ``unpacked_secondary_provisional_designation``
-- ``permid``
+    - ``unpacked_primary_provisional_designation``
+    - ``unpacked_secondary_provisional_designation``
+    - ``permid``
 
 public_numbered_identifications
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -132,12 +157,12 @@ Information about numbered asteroids:
 .. code-block:: sql
 
     SELECT *
-    FROM `moeyens-thor-dev.mpc_sbn_aurora.public_numbered_identifications`
+    FROM `your-dataset-id.asteroid_institute_mpc_replica.public_numbered_identifications`
     WHERE permid = '12345'
 
 Key columns:
-- ``permid``: Permanent identifier
-- ``unpacked_primary_provisional_designation``
+    - ``permid``: Permanent identifier
+    - ``unpacked_primary_provisional_designation``
 
 public_orbits
 ^^^^^^^^^^^
@@ -147,16 +172,16 @@ Orbital elements for objects:
 .. code-block:: sql
 
     SELECT *
-    FROM `moeyens-thor-dev.mpc_sbn_aurora.public_orbits`
+    FROM `your-dataset-id.asteroid_institute_mpc_replica.public_orbits`
     WHERE provid = '2013 RR165'
     ORDER BY epoch DESC
     LIMIT 1
 
 Key columns:
-- ``provid``: Provisional designation
-- ``epoch``: Epoch of orbital elements
-- ``a``, ``e``, ``i``: Semi-major axis, eccentricity, inclination
-- ``om``, ``w``, ``ma``: Longitude of ascending node, argument of perihelion, mean anomaly
+    - ``provid``: Provisional designation
+    - ``epoch``: Epoch of orbital elements
+    - ``a``, ``e``, ``i``: Semi-major axis, eccentricity, inclination
+    - ``om``, ``w``, ``ma``: Longitude of ascending node, argument of perihelion, mean anomaly
 
 Performance Optimization
 ---------------------
@@ -181,16 +206,15 @@ The dataset includes several performance optimizations:
        WHERE stn in ("W68", "T08", "T05", "M22") 
        GROUP BY stn;
 
-   The clustered view typically provides:
-   - 80%+ reduction in data processed
-   - Significantly faster query execution
-   - Lower query costs
+The clustered view typically provides:
+    - 80%+ reduction in data processed
+    - Significantly faster query execution
+    - Lower query costs
 
 2. **Query Best Practices**:
-   - Use clustered views when possible for better performance
-   - Filter on indexed columns when possible
-   - Use ``LIMIT`` to test queries before running on full dataset
-   - Consider partitioning large result sets
+    - Use clustered views when possible for better performance
+    - Filter on indexed columns when possible
+    - Use ``LIMIT`` to test queries before running on full dataset
 
 Example Queries
 -------------
@@ -206,7 +230,7 @@ Find all observations of an object:
         mag,
         band,
         stn
-    FROM `moeyens-thor-dev.mpc_sbn_aurora.public_obs_sbn`
+    FROM `your-dataset-id.asteroid_institute_mpc_replica.public_obs_sbn`
     WHERE provid = '2013 RR165'
     ORDER BY obstime ASC
 
@@ -219,7 +243,7 @@ Find objects with multiple designations:
             unpacked_primary_provisional_designation,
             unpacked_secondary_provisional_designation,
             permid
-        FROM `moeyens-thor-dev.mpc_sbn_aurora.public_current_identifications`
+        FROM `your-dataset-id.asteroid_institute_mpc_replica.public_current_identifications`
         WHERE unpacked_secondary_provisional_designation = '2013 RR165'
     )
     SELECT DISTINCT
@@ -228,7 +252,7 @@ Find objects with multiple designations:
         o.dec,
         o.provid,
         i.unpacked_primary_provisional_designation
-    FROM `moeyens-thor-dev.mpc_sbn_aurora.public_obs_sbn` o
+    FROM `your-dataset-id.asteroid_institute_mpc_replica.public_obs_sbn` o
     JOIN object_ids i
         ON o.provid = i.unpacked_secondary_provisional_designation
         OR o.provid = i.unpacked_primary_provisional_designation
@@ -240,33 +264,13 @@ Cost Management
 To manage BigQuery costs effectively, it's important to understand the scale of the data:
 
 1. **Query Cost Examples**:
-   - Full scan of observations table (181.44 GB): ~$0.90
-   - Scanning 10% of the table: ~$0.09
-   - Monthly free tier (1 TB) could process the full table ~5.5 times
+    - Full scan of observations table (181.44 GB): ~$0.90
+    - Scanning 10% of the table: ~$0.09
+    - Monthly free tier (1 TB) could process the full table ~5.5 times
 
 2. **Query Optimization Strategies**:
-   - Use column selection instead of ``SELECT *``
-   - Add ``WHERE`` clauses early in your query
-   - Test queries with ``LIMIT`` first
-   - Use the clustered views when possible
-   - Consider caching frequently accessed results
-
-3. **Cost Estimation**:
-   
-   .. code-block:: python
-
-       from google.cloud import bigquery
-
-       # Configure a dry run
-       job_config = bigquery.QueryJobConfig(dry_run=True)
-       
-       # Example: full table scan
-       query = "SELECT * FROM `your_dataset.public_obs_sbn`"
-       query_job = client.query(query, job_config=job_config)
-       bytes_processed = query_job.total_bytes_processed
-       
-       # Cost at $5.00 per TB
-       estimated_cost_usd = (bytes_processed / 1e12) * 5.00
-       
-       print(f"This query will process {bytes_processed/1e9:.2f} GB")
-       print(f"Estimated cost: ${estimated_cost_usd:.2f}")
+    - Use column selection instead of ``SELECT *``
+    - Add ``WHERE`` clauses early in your query
+    - Test queries with ``LIMIT`` first
+    - Use the clustered views when possible
+    - Consider caching frequently accessed results

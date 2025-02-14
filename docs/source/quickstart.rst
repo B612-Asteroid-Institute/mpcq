@@ -13,10 +13,10 @@ Subscribe to the Dataset
 
 Before you can use ``mpcq``, you need to subscribe to the MPC dataset through Google Cloud's Analytics Hub:
 
-1. Visit the `Main MPC Dataset <https://console.cloud.google.com/bigquery/analytics-hub/exchanges/projects/492788363398/locations/us/dataExchanges/asteroid_institute_mpc_replica_1950545e4f4/listings/asteroid_institute_mpc_replica_1950549970f>`_ listing
-2. Click "Subscribe"
+1. Visit the `Main MPC Dataset <https://console.cloud.google.com/bigquery/analytics-hub/exchanges/projects/492788363398/locations/us/dataExchanges/asteroid_institute_mpc_replica_1950545e4f4/listings/asteroid_institute_mpc_replica_1950549970f>`__ listing
+2. Click "Subscribe" and create a linked dataset in your project
 3. Visit the `Clustered Views Dataset <https://console.cloud.google.com/bigquery/analytics-hub/exchanges/projects/492788363398/locations/us/dataExchanges/asteroid_institute_mpc_replica_1950545e4f4/listings/asteroid_institute_mpc_replica_views_195054bbe98>`_ listing
-4. Click "Subscribe"
+4. Click "Subscribe" and create a linked dataset in your project
 5. Note the dataset IDs from your subscriptions
 
 Initialize the Client
@@ -31,6 +31,14 @@ Initialize the Client
         dataset_id="your_subscribed_main_dataset_id",
         views_dataset_id="your_subscribed_views_dataset_id"
     )
+
+.. warning::
+   The MPC dataset in BigQuery is large, containing millions of observations and orbits. Running queries will incur Google Cloud Platform billing charges based on the amount of data scanned.
+
+   There is a small free allowance of 1TB analysis credits per month in BigQuery, but this will quickly be consumed with queries against the large obervations database.
+
+   For more information on BigQuery billing, see the `BigQuery documentation <https://cloud.google.com/bigquery/pricing>`_.
+
 
 Query Observations
 ---------------
@@ -103,6 +111,21 @@ Find potential duplicate observations:
         obstime_tolerance_seconds=30,
         arcseconds_tolerance=2.0
     )
+
+A Note on Quivr
+-------------
+
+The ``mpcq`` package primarily uses `Quivr <https://github.com/B612-Asteroid-Institute/quivr>`_ Tables for data structures. ``quivr`` tables are similar to pandas DataFrames, but provide:
+
+- Strict schemas and type safety
+- Composability
+- Efficient memory usage, backed by Apache Arrow
+- Optimized serialization/deserialization to Parquet
+
+For example, ``MPCObservations``, ``MPCOrbits``, ``MPCSubmissionHistory``, and ``ADESObservations`` are all ``quivr`` Tables with well-defined schemas.
+
+You can view detailed ``quivr`` docs `here <https://quivr.readthedocs.io/en/stable/>`_.
+
 
 Next Steps
 ---------
