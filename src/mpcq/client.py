@@ -964,7 +964,7 @@ class BigQueryMPCClient(MPCClient):
 
         # Convert meters to arcseconds
         separation_arcseconds = (
-            results["separation_meters"].to_numpy(zero_copy_only=False) 
+            results["separation_meters"].to_numpy(zero_copy_only=False)
             / METERS_PER_ARCSECONDS
         )
 
