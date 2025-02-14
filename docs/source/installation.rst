@@ -1,97 +1,123 @@
 Installation
 ============
 
-This guide will help you install ``mpcq`` and set up your environment.
-
 Requirements
-----------
+-----------
 
-- Python 3.9 or later
-- A Google Cloud Platform account
-- Access to the MPC BigQuery dataset (see :doc:`quickstart`)
+``mpcq`` requires Python 3.11 or later (< 3.13). The package has the following core dependencies:
 
-Installation Methods
------------------
+- ``google-cloud-bigquery``
+- ``pyarrow``
+- ``numpy``
+- ``astropy``
+- ``adam-core``
 
-Using pip
-^^^^^^^^
+Installing mpcq
+-------------
 
-The recommended way to install ``mpcq`` is through pip:
+You can install ``mpcq`` using pip:
 
 .. code-block:: bash
 
     pip install mpcq
 
-Development Installation
-^^^^^^^^^^^^^^^^^^^^
-
-For development, we use PDM to manage dependencies and the development environment:
-
-1. Install PDM if you haven't already:
-
-   .. code-block:: bash
-
-       pip install pdm
-
-2. Clone the repository:
-
-   .. code-block:: bash
-
-       git clone https://github.com/B612-Asteroid-Institute/mpcq.git
-       cd mpcq
-
-3. Install development dependencies:
-
-   .. code-block:: bash
-
-       pdm install -G dev
-
-This will install all dependencies, including those needed for development, testing, and documentation.
-
 Google Cloud Setup
----------------
+----------------
 
-1. Install the Google Cloud SDK
-2. Authenticate with Google Cloud:
+To use ``mpcq``, you'll need to:
+
+1. Create a Google Cloud Platform account if you don't have one
+2. Create a new project or select an existing one
+3. Enable the BigQuery API for your project
+4. Subscribe to the MPC datasets through Analytics Hub:
+
+   a. Visit the `Main MPC Dataset <https://console.cloud.google.com/bigquery/analytics-hub/exchanges/projects/492788363398/locations/us/dataExchanges/asteroid_institute_mpc_replica_1950545e4f4/listings/asteroid_institute_mpc_replica_1950549970f>`_ listing and subscribe
+   b. Visit the `Clustered Views Dataset <https://console.cloud.google.com/bigquery/analytics-hub/exchanges/projects/492788363398/locations/us/dataExchanges/asteroid_institute_mpc_replica_1950545e4f4/listings/asteroid_institute_mpc_replica_views_195054bbe98>`_ listing and subscribe
+   c. Note the dataset IDs from your subscriptions
+
+5. Set up authentication:
+
+   a. Create a service account and download the JSON key file
+   b. Set the environment variable ``GOOGLE_APPLICATION_CREDENTIALS`` to point to your key file:
+
+   .. code-block:: bash
+
+       export GOOGLE_APPLICATION_CREDENTIALS="/path/to/your/service-account-key.json"
+
+   c. Alternatively, you can use Application Default Credentials:
 
    .. code-block:: bash
 
        gcloud auth application-default login
 
-3. Subscribe to the MPC dataset (see :doc:`quickstart`)
+Using the Client
+--------------
 
-Verifying Installation
--------------------
-
-To verify your installation:
+After setting up authentication and subscribing to the datasets, you can initialize the client:
 
 .. code-block:: python
 
     from mpcq.client import BigQueryMPCClient
 
-    # Should print the version number
-    print(BigQueryMPCClient.version())
+    client = BigQueryMPCClient(
+        dataset_id="your_subscribed_main_dataset_id",
+        views_dataset_id="your_subscribed_views_dataset_id"
+    )
 
-Troubleshooting
-------------
+Cost Considerations
+-----------------
 
-Common Issues
-^^^^^^^^^^^
+Queries to the BigQuery dataset will be billed according to your Google Cloud Platform account's BigQuery pricing. BigQuery offers a generous free tier:
 
-1. Authentication errors:
-   - Ensure you're logged in with ``gcloud auth application-default login``
-   - Check your Google Cloud project has billing enabled
+- **Monthly Free Tier**:
+    - 1 TB of query processing
+    - 10 GB of active storage
+    - 10 GB of long-term storage
 
-2. Import errors:
-   - Verify Python version (3.9+)
-   - Check if all dependencies are installed
-   - Try reinstalling with ``pip install --force-reinstall mpcq``
+Beyond the free tier, costs are based on:
 
-Getting Help
-^^^^^^^^^^
+- Query pricing: $5.00 per TB of data processed
+- Storage pricing: $0.02 per GB per month for active storage
 
-If you encounter issues:
+To manage costs effectively:
 
-1. Check the :doc:`quickstart` guide
-2. Search existing GitHub issues
-3. Open a new issue if needed
+- Use the BigQuery Console to estimate query costs before running them
+- Consider setting up billing alerts and quotas
+- Use query optimization techniques:
+    - Select specific columns instead of ``SELECT *``
+    - Use ``LIMIT`` to test queries
+    - Filter early in queries to reduce data processed
+- Cache frequently accessed results locally
+
+You can estimate query costs programmatically:
+
+.. code-block:: python
+
+    from google.cloud import bigquery
+
+    # Configure a dry run
+    job_config = bigquery.QueryJobConfig(dry_run=True)
+    
+    # Your query
+    query = "SELECT * FROM `your_dataset.public_obs_sbn`"
+    
+    # Get bytes that would be processed
+    query_job = client.query(query, job_config=job_config)
+    bytes_processed = query_job.total_bytes_processed
+    
+    # Estimate cost ($5.00 per TB)
+    estimated_cost_usd = (bytes_processed / 1e12) * 5.00
+
+For more details on pricing and cost management, see :doc:`bigquery_dataset`.
+
+Development Installation
+----------------------
+
+For development, you can install ``mpcq`` from source.
+We use `pdm <https://pdm.fming.dev/latest/>`_ to manage the dependencies.
+
+.. code-block:: bash
+
+    git clone https://github.com/B612-Asteroid-Institute/mpcq.git
+    cd mpcq
+    pdm install -G dev
