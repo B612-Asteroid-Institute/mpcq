@@ -168,9 +168,15 @@ class MPCClient(ABC):
 
 class BigQueryMPCClient(MPCClient):
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        dataset_id: str,
+        views_dataset_id: str,
+        **kwargs: Any,
+    ) -> None:
         self.client = bigquery.Client(**kwargs)
-        self.dataset_id = "moeyens-thor-dev.mpc_sbn_aurora"
+        self.dataset_id = dataset_id
+        self.views_dataset_id = views_dataset_id
 
     def query_observations(self, provids: List[str]) -> MPCObservations:
         """
@@ -763,7 +769,7 @@ class BigQueryMPCClient(MPCClient):
             ST_DISTANCE(clustered.st_geo, input.input_geo) AS separation_meters,
             TIMESTAMP_DIFF(clustered.obstime, input.obstime, SECOND) AS separation_seconds
         FROM input_observations AS input
-        JOIN `{self.dataset_id}_views.public_obs_sbn_clustered` AS clustered
+        JOIN `{self.views_dataset_id}.public_obs_sbn_clustered` AS clustered
             ON clustered.stn = input.stn
             AND clustered.obstime BETWEEN 
                 TIMESTAMP_SUB(input.obstime, INTERVAL {obstime_tolerance_seconds} SECOND)
