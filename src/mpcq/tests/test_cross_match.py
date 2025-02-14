@@ -52,7 +52,7 @@ def test_cross_match_observations_empty_result(
     mock_client.query.return_value = mock_query_job
 
     # Patch the BigQuery client
-    mocker.patch('google.cloud.bigquery.Client', return_value=mock_client)
+    mocker.patch("google.cloud.bigquery.Client", return_value=mock_client)
 
     client = BigQueryMPCClient()
     result = client.cross_match_observations(test_ades_observations)
@@ -80,7 +80,7 @@ def test_cross_match_observations_with_matches(
     mock_client.query.return_value = mock_query_job
 
     # Patch the BigQuery client
-    mocker.patch('google.cloud.bigquery.Client', return_value=mock_client)
+    mocker.patch("google.cloud.bigquery.Client", return_value=mock_client)
 
     client = BigQueryMPCClient()
     result = client.cross_match_observations(test_ades_observations)
@@ -95,7 +95,7 @@ def test_cross_match_observations_with_matches(
 def test_cross_match_observations_invalid_input(mocker: MockFixture) -> None:
     # Create mock client
     mock_client = mocker.Mock(spec=bigquery.Client)
-    mocker.patch('google.cloud.bigquery.Client', return_value=mock_client)
+    mocker.patch("google.cloud.bigquery.Client", return_value=mock_client)
 
     # Create ADES observations with null obsSubID
     obstime = Time(["2023-01-01T00:00:00"], format="isot", scale="utc")
