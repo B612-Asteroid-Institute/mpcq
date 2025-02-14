@@ -16,6 +16,7 @@ class MPCObservations(qv.Table):
     dec = qv.Float64Column(nullable=True)
     rmsra = qv.Float64Column(nullable=True)
     rmsdec = qv.Float64Column(nullable=True)
+    rmscorr = qv.Float64Column(nullable=True)
     mag = qv.Float64Column(nullable=True)
     rmsmag = qv.Float64Column(nullable=True)
     band = qv.LargeStringColumn(nullable=True)
@@ -23,6 +24,8 @@ class MPCObservations(qv.Table):
     updated_at = Timestamp.as_column(nullable=True)
     created_at = Timestamp.as_column(nullable=True)
     status = qv.LargeStringColumn(nullable=True)
+    astcat = qv.LargeStringColumn(nullable=True)
+    mode = qv.LargeStringColumn(nullable=True)
 
 
 class CrossMatchedMPCObservations(qv.Table):
