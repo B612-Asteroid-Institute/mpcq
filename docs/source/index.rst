@@ -6,6 +6,31 @@ The data is hosted on Google BigQuery and maintained by the `Asteroid Institute 
 
 You can find the source code on `GitHub <https://github.com/B612-Asteroid-Institute/mpcq>`_ and the package on `PyPI <https://pypi.org/project/mpcq/>`_.
 
+For example, the library provides a simple interface to query MPC observations:
+
+.. code-block:: python
+
+    client = BigQueryMPCClient(
+        dataset_id="your_subscribed_main_dataset_id",
+        views_dataset_id="your_subscribed_views_dataset_id"
+    )
+    
+    observations = client.query_observations(["2013 RR165"])
+
+.. code-block:: python
+
+   >>print(f"Number of observations: {len(observations)}")
+   Number of observations: 40
+   >>print(f"Date range: {observations.obstime.min().mjd()} to {observations.obstime.max().mjd()}")
+   Date range: [55591.46905] to [58009.34117]
+   >>print(f"Observatories: {pc.unique(observations.stn)}")
+   Observatories: [
+      "F51",
+      "W84",
+      "G96"
+   ]
+
+
 Features
 --------
 

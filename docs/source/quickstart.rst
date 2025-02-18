@@ -88,7 +88,7 @@ The ``mpcq`` package primarily uses `Quivr <https://github.com/B612-Asteroid-Ins
 - Efficient memory usage, backed by Apache Arrow
 - Optimized serialization/deserialization to Parquet
 
-For example, ``MPCObservations``, ``MPCOrbits``, ``MPCSubmissionHistory``, and ``ADESObservations`` are all ``quivr`` Tables with well-defined schemas.
+For example, ``MPCObservations``, ``MPCOrbits``, ``MPCSubmissionHistory``, and ``ADESObservations`` are all ``quivr`` Tables with well-defined schemas. For interoperability with pandas, all ``quivr`` tables have a ``to_dataframe()`` method.
 
 You can view detailed ``quivr`` docs `here <https://quivr.readthedocs.io/en/stable/>`_.
 
