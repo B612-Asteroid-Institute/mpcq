@@ -36,8 +36,6 @@ jobs:
           python-version: "3.11"
       - name: Install PDM
         run: pip install pdm
-      - name: Install dependencies
-        run: pdm install -G:all
       - name: Build the distribution
         run: pdm build
       - name: Show version to be published
