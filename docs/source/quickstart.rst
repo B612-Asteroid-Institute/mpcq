@@ -37,7 +37,7 @@ Initialize the Client
 
    There is a small free allowance of 1TB analysis credits per month in BigQuery, but this will quickly be consumed with queries against the large obervations database.
 
-   For more information on BigQuery billing, see the `BigQuery documentation <https://cloud.google.com/bigquery/pricing>`_.
+   For more information on BigQuery billing, see :ref:`pricing-and-free-tier`.
 
 
 Query Observations

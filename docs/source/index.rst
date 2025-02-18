@@ -10,15 +10,11 @@ For example, the library provides a simple interface to query MPC observations:
 
 .. code-block:: python
 
-    client = BigQueryMPCClient(
-        dataset_id="your_subscribed_main_dataset_id",
-        views_dataset_id="your_subscribed_views_dataset_id"
-    )
-    
-    observations = client.query_observations(["2013 RR165"])
-
-.. code-block:: python
-
+   >>client = BigQueryMPCClient(
+      dataset_id="your_subscribed_main_dataset_id",
+      views_dataset_id="your_subscribed_views_dataset_id"
+   )
+   >>observations = client.query_observations(["2013 RR165"])
    >>print(f"Number of observations: {len(observations)}")
    Number of observations: 40
    >>print(f"Date range: {observations.obstime.min().mjd()} to {observations.obstime.max().mjd()}")

@@ -61,48 +61,10 @@ Cost Considerations
 -----------------
 
 Queries to the BigQuery dataset will be billed according to your Google Cloud Platform account's BigQuery pricing. 
-BigQuery offers a generous free tier:
+BigQuery offers a free tier, but the limits are too low for users that plan to be running more than tens of queries per month.
 
-- **Monthly Free Tier**:
-    - 1 TB of query processing
-    - 10 GB of active storage
-    - 10 GB of long-term storage
 
-Beyond the free tier, costs are based on:
-
-- Query pricing: $5.00 per TB of data processed
-- Storage pricing: $0.02 per GB per month for active storage
-
-To manage costs effectively:
-
-- Use the BigQuery Console to estimate query costs before running them
-- Consider setting up billing alerts and quotas
-- Use query optimization techniques:
-    - Select specific columns instead of ``SELECT *``
-    - Use ``LIMIT`` to test queries
-    - Filter early in queries to reduce data processed
-- Cache frequently accessed results locally
-
-You can estimate query costs programmatically:
-
-.. code-block:: python
-
-    from google.cloud import bigquery
-
-    # Configure a dry run
-    job_config = bigquery.QueryJobConfig(dry_run=True)
-    
-    # Your query
-    query = "SELECT * FROM `your_dataset.public_obs_sbn`"
-    
-    # Get bytes that would be processed
-    query_job = client.query(query, job_config=job_config)
-    bytes_processed = query_job.total_bytes_processed
-    
-    # Estimate cost ($5.00 per TB)
-    estimated_cost_usd = (bytes_processed / 1e12) * 5.00
-
-For more details on pricing and cost management, see :doc:`bigquery_dataset`.
+For more details on pricing and cost management, see :ref:`pricing-and-free-tier`.
 
 Development Installation
 ----------------------

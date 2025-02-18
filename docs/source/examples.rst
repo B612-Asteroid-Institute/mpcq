@@ -90,7 +90,7 @@ Get the status of a Submission
 ----------------------------
 
 Given one or more submission IDs, get the status of the corresponding observations.
-Similar to WAMO, this can be useful for tracking ones submissions.
+Similar to `WAMO <https://minorplanetcenter.net/wamo/>`_, this can be useful for tracking one's submissions.
 
 .. code-block:: python
 

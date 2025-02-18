@@ -78,36 +78,6 @@ A repository of specialized, performance-optimized views:
 Real-time updates for materialized views are prohibitively costly, so a daily refresh is used for now. New clustered views may be added as the need arises.
 
 
-Pricing and Free Tier
-------------------
-
-BigQuery offers a free tier and a pay-as-you-go pricing model. Note that your free monthly 1TB of analysis credits are maintained on a paid plan.
-
-**Free Tier (Monthly)**:
-    - 1 TB of query processing
-    - 10 GB of active storage
-
-**Standard Pricing**:
-    - Query pricing: $6.25 per TB of data processed
-    - Storage pricing: $0.02 per GB per month for active storage
-
-Cost Management
--------------
-
-To manage BigQuery costs effectively:
-
-1. **Query Optimization**:
-    - Use column selection instead of ``SELECT *``
-    - Add ``WHERE`` clauses early in your query
-    - Test queries with ``LIMIT`` first
-    - Use the clustered views when possible
-
-2. **Cost Control**:
-    - Set up billing alerts in Google Cloud Console
-    - Use query quotas to prevent accidental large queries
-    - Consider using `maximum_bytes_billed` in your queries
-
-
 Key Tables
 ---------
 
@@ -258,19 +228,53 @@ Find objects with multiple designations:
         OR o.provid = i.unpacked_primary_provisional_designation
     ORDER BY o.obstime ASC
 
-Cost Management
--------------
+.. _pricing-and-free-tier:
+
+Pricing and Free Tier
+--------------------
+
+BigQuery offers a free tier and a pay-as-you-go pricing model. Note that your free monthly 1TB of analysis credits are maintained on a paid plan.
+
+**Free Tier (Monthly)**:
+    - 1 TB of query processing
+    - 10 GB of active storage
+
+**Standard Pricing**:
+    - Query pricing: $6.25 per TB of data processed
+    - Storage pricing: $0.02 per GB per month for active storage
+
+To manage costs effectively:
+
+- Use the BigQuery Console to estimate query costs before running them
+- Consider setting up billing alerts and quotas
+- Use query optimization techniques:
+    - Select specific columns instead of ``SELECT *``
+    - Use ``LIMIT`` to test queries
+    - Filter early in queries to reduce data processed
+- Cache frequently accessed results locally
+
+You can estimate query costs programmatically by setting up a dry run:
+
+.. code-block:: python
+
+    from google.cloud import bigquery
+
+    # Configure a dry run
+    job_config = bigquery.QueryJobConfig(dry_run=True)
+    
+    # Your query
+    query = "SELECT * FROM `your_dataset.public_obs_sbn`"
+    
+    # Get bytes that would be processed
+    query_job = client.query(query, job_config=job_config)
+    bytes_processed = query_job.total_bytes_processed
+    
+    # Estimate cost ($5.00 per TB)
+    estimated_cost_usd = (bytes_processed / 1e12) * 5.00
 
 To manage BigQuery costs effectively, it's important to understand the scale of the data:
 
-1. **Query Cost Examples**:
+**Query Cost Examples**:
     - Full scan of observations table (181.44 GB): ~$0.90
     - Scanning 10% of the table: ~$0.09
     - Monthly free tier (1 TB) could process the full table ~5.5 times
-
-2. **Query Optimization Strategies**:
-    - Use column selection instead of ``SELECT *``
-    - Add ``WHERE`` clauses early in your query
-    - Test queries with ``LIMIT`` first
-    - Use the clustered views when possible
-    - Consider caching frequently accessed results
