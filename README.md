@@ -1,81 +1,114 @@
 # mpcq
 #### A Python package by the Asteroid Institute, a program of the B612 Foundation  
 
-[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue)](https://img.shields.io/badge/Python-3.10%2B-blue)
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue)](https://img.shields.io/badge/Python-3.11%2B-blue)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)  
 [![pip - Build, Lint, Test, and Coverage](https://github.com/B612-Asteroid-Institute/mpcq/actions/workflows/pip-build-lint-test-coverage.yml/badge.svg)](https://github.com/B612-Asteroid-Institute/mpcq/actions/workflows/pip-build-lint-test-coverage.yml)
+[![Documentation Status](https://readthedocs.org/projects/mpcq/badge/?version=latest)](https://mpcq.readthedocs.io/en/latest/?badge=latest)
 
-This is a client library for interacting with an MPC observations database.
+`mpcq` is a powerful Python client library for querying and analyzing Minor Planet Center (MPC) data through Google BigQuery. This package provides efficient access to a BigQuery instance of the Small Bodies Node (SBN) replica of the MPC's Small Bodies Node database, maintained by the Asteroid Institute.
 
-## Notice
+## Features
 
-The Asteroid Institute hosts a private mirror of the Minor Planet Center's Small Bodies Node.
+- **BigQuery Integration**: Direct access to a complete replica of the MPC database through Google BigQuery
+- **Efficient Queries**: Optimized query patterns for common asteroid data access patterns
+- **Rich Data Access**: Query observations, orbits, submission history, and more
+- **Cross-Matching**: Tools for matching observations and finding duplicates
+- **ADES Support**: Integration with ADES format for modern asteroid data exchange
 
-To set up your own mirror, please see the [SBN guidelines](https://sbnwiki.astro.umd.edu/wiki/). While support is planned for connecting to an arbitrary database mirror, the current version of this package only supports connecting to a hosted Cloud SQL instance on GCP.
+## BigQuery Dataset Access
 
-Two indices on the observation table have been added for performance reasons. They are listed below with their sql definitions:
-- obs_sbn_submission_id
-```sql
-CREATE INDEX obs_sbn_submission_id ON public.obs_sbn USING hash (submission_id);
+The Asteroid Institute maintains a BigQuery replica of the Minor Planet Center's Small Bodies Node database. The dataset is available through Google Cloud's Analytics Hub and requires subscription to two listings:
+
+1. [Main MPC Dataset](https://console.cloud.google.com/bigquery/analytics-hub/exchanges/projects/492788363398/locations/us/dataExchanges/asteroid_institute_mpc_replica_1950545e4f4/listings/asteroid_institute_mpc_replica_1950549970f)
+2. [Clustered Views Dataset](https://console.cloud.google.com/bigquery/analytics-hub/exchanges/projects/492788363398/locations/us/dataExchanges/asteroid_institute_mpc_replica_1950545e4f4/listings/asteroid_institute_mpc_replica_views_195054bbe98)
+
+To access the dataset, you'll need:
+
+1. A Google Cloud Platform account
+2. BigQuery API access enabled
+3. Subscription to both Analytics Hub listings
+4. Google Cloud credentials configured
+
+Queries will be billed according to your Google Cloud Platform account's BigQuery pricing.
+
+## Installation
+
+```bash
+pip install mpcq
 ```
-- obs_sbn_provid
-```sql
-CREATE INDEX obs_sbn_provid ON public.obs_sbn USING hash (provid)
-```
 
-## Usage
+## Quick Start
 
-To connect to the Asteroid Institute's clone of the Small Bodies Node MPC database:
 ```python
-from mpcq.client import MPCObservationsClient
+from mpcq.client import BigQueryMPCClient
 
-client = MPCObservationsClient.connect_using_gcloud()
-```
+# Initialize client with your subscribed dataset IDs
+client = BigQueryMPCClient(
+    dataset_id="your_subscribed_main_dataset_id",
+    views_dataset_id="your_subscribed_views_dataset_id"
+)
 
-With a client initialized, you can get all observations of a particular object using its provisional designation:
-```python
-observations = client.get_object_observations("2013 RR165")
-observations = list(observations)
-```
+# Query observations for a specific object
+observations = client.query_observations(["2013 RR165"])
 
-These can be converted into a dataframe as follows:
-
-```python
+# Convert to pandas DataFrame for analysis
 from mpcq.utils import observations_to_dataframe
-
-observations_df = observations_to_dataframe(observations)
-print(observations_df.head(5))
-```
-```
-	mpc_id	status	obscode	filter_band	unpacked_provisional_designation	timestamp	ra	ra_rms	dec	dec_rms	mag	mag_rms	submission_id	created_at	updated_at
-0	174511900	Published	F51	w	2013 RR165	2011-01-30 11:15:26	123.884679	None	19.820047	None	22.2	None	2011-04-12T00:57:19.000_00005L9j	2017-07-10 00:00:00.000000	2022-06-15 17:17:33.421485
-1	174511901	Published	F51	w	2013 RR165	2011-01-30 11:37:23	123.880767	None	19.820603	None	22.4	None	2011-04-12T00:57:19.000_00005L9j	2017-07-10 00:00:00.000000	2022-06-15 17:17:33.427512
-2	174511902	Published	F51	w	2013 RR165	2011-01-30 12:22:35	123.872683	None	19.821694	None	22.3	None	2011-04-12T00:57:19.000_00005L9j	2017-07-10 00:00:00.000000	2022-06-15 17:17:33.431369
-3	394474985	Published	W84	g	2013 RR165	2013-09-02 05:49:09	354.49745627	0.097	1.17373181	0.100	21.66	0.07	2022-05-23T23:16:35.633_0000EfpX	2022-05-23 23:18:28.963374	2022-06-15 17:17:33.434170
-4	175542203	Published	F51	w	2013 RR165	2013-09-03 10:20:19	354.259229	None	1.099064	None	21.6	None	2013-09-04T00:37:51.000_00005cQy	2017-07-10 00:00:00.000000	2022-06-15 17:17:33.436820
+df = observations_to_dataframe(observations)
+print(df.head())
 ```
 
-Getting the submission ID and the number of observations per submission of an object:
+## Advanced Usage
+
+### Query Submission History
 ```python
-submissions = client.get_object_submissions("2013 RR165")
-submissions = list(submissions)
+# Get submission history for an object
+submissions = client.query_submission_history(["2013 RR165"])
 ```
 
-As before, these can be converted to a dataframe:
+### Cross-Match Observations
 ```python
-from mpcq.utils import submissions_to_dataframe
+# Cross-match ADES observations with MPC database
+matched = client.cross_match_observations(
+    ades_observations,
+    obstime_tolerance_seconds=30,
+    arcseconds_tolerance=2.0
+)
+```
 
-submissions_df = submissions_to_dataframe(submissions)
-print(submissions_df)
+### Find Duplicates
+```python
+# Find potential duplicate observations
+duplicates = client.find_duplicates(
+    "2013 RR165",
+    obstime_tolerance_seconds=30,
+    arcseconds_tolerance=2.0
+)
 ```
-```
-	id	num_observations	timestamp
-0	2017-07-05T20:57:57.001_00006dS8	3	2017-07-05 20:57:57.001
-1	2013-09-04T00:37:51.000_00005cQy	3	2013-09-04 00:37:51.000
-2	2017-09-13T19:53:09.000_0000CdSX	2	2017-09-13 19:53:09.000
-3	2022-05-23T23:16:35.633_0000EfpX	19	2022-05-23 23:16:35.633
-4	2013-09-12T11:43:25.001_00005cpl	4	2013-09-12 11:43:25.001
-5	2011-04-12T00:57:19.000_00005L9j	3	2011-04-12 00:57:19.000
-6	2016-04-03T19:54:29.000_00006IpM	3	2016-04-03 19:54:29.000
-7	2015-01-16T23:14:02.000_00005wg5	3	2015-01-16 23:14:02.000
-```
+
+## Documentation
+
+For complete documentation, including detailed API reference and examples, visit our [ReadTheDocs page](https://mpcq.readthedocs.io/).
+
+## BigQuery Dataset Schema
+
+The dataset (`moeyens-thor-dev.mpc_sbn_aurora`) contains several key tables:
+
+- `public_obs_sbn`: Primary observations table
+- `public_current_identifications`: Current object identifications
+- `public_numbered_identifications`: Numbered asteroid identifications
+- `public_orbits`: Orbital elements
+
+You can explore these tables and their schemas directly in the [BigQuery Console](https://console.cloud.google.com/bigquery?project=moeyens-thor-dev&page=dataset&d=mpc_sbn_aurora&p=moeyens-thor-dev).
+
+## Contributing
+
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details.
+
+## Acknowledgments
+
+The Asteroid Institute acknowledges the Minor Planet Center and the Small Bodies Node for their invaluable work in maintaining the authoritative small bodies database.
