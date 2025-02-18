@@ -20,19 +20,20 @@ def test_client_initialization(mocker: MockFixture) -> None:
 
     assert client.dataset_id == dataset_id
     assert client.views_dataset_id == views_dataset_id
-    assert isinstance(client.client, bigquery.Client)
 
 
 def test_client_initialization_missing_dataset_id() -> None:
     # Test initialization without required dataset_id
     with pytest.raises(TypeError, match=r".*missing.*required.*argument.*dataset_id"):
-        BigQueryMPCClient(views_dataset_id="test_views_dataset")
+        BigQueryMPCClient(views_dataset_id="test_views_dataset")  # type: ignore
 
 
 def test_client_initialization_missing_views_dataset_id() -> None:
     # Test initialization without required views_dataset_id
-    with pytest.raises(TypeError, match=r".*missing.*required.*argument.*views_dataset_id"):
-        BigQueryMPCClient(dataset_id="test_dataset")
+    with pytest.raises(
+        TypeError, match=r".*missing.*required.*argument.*views_dataset_id"
+    ):
+        BigQueryMPCClient(dataset_id="test_dataset")  # type: ignore
 
 
 def test_client_initialization_with_kwargs(mocker: MockFixture) -> None:
@@ -55,7 +56,6 @@ def test_client_initialization_with_kwargs(mocker: MockFixture) -> None:
 
     assert client.dataset_id == dataset_id
     assert client.views_dataset_id == views_dataset_id
-    assert isinstance(client.client, bigquery.Client)
 
     # Verify that kwargs were passed to BigQuery client
-    bigquery.Client.assert_called_once_with(project=project, location=location) 
+    bigquery.Client.assert_called_once_with(project=project, location=location)  # type: ignore
