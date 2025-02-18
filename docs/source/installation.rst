@@ -37,14 +37,7 @@ To use ``mpcq``, you'll need to:
 
 5. Set up authentication:
 
-   a. Create a service account and download the JSON key file
-   b. Set the environment variable ``GOOGLE_APPLICATION_CREDENTIALS`` to point to your key file:
-
-   .. code-block:: bash
-
-       export GOOGLE_APPLICATION_CREDENTIALS="/path/to/your/service-account-key.json"
-
-   c. Alternatively, you can use Application Default Credentials:
+  An easy way is to use Application Default Credentials:
 
    .. code-block:: bash
 
@@ -67,7 +60,8 @@ After setting up authentication and subscribing to the datasets, you can initial
 Cost Considerations
 -----------------
 
-Queries to the BigQuery dataset will be billed according to your Google Cloud Platform account's BigQuery pricing. BigQuery offers a generous free tier:
+Queries to the BigQuery dataset will be billed according to your Google Cloud Platform account's BigQuery pricing. 
+BigQuery offers a generous free tier:
 
 - **Monthly Free Tier**:
     - 1 TB of query processing
@@ -114,7 +108,7 @@ Development Installation
 ----------------------
 
 For development, you can install ``mpcq`` from source.
-We use `pdm <https://pdm.fming.dev/latest/>`_ to manage the dependencies.
+We use `pdm <https://pdm.fming.dev/latest/>`_ to manage dependencies and tooling.
 
 .. code-block:: bash
 

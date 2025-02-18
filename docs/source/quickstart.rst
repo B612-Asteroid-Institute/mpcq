@@ -45,13 +45,19 @@ Query Observations
 
 .. code-block:: python
 
+    import pyarrow.compute as pc
+
     # Query observations - returns MPCObservations (Quivr table)
     observations = client.query_observations(["2013 RR165"])
     
     # Access data directly from the table
     print(f"Number of observations: {len(observations)}")
     print(f"First observation time: {observations.obstime[0]}")
-    print(f"Observatories: {observations.stn.unique()}")
+    print(f"Observatories: {pc.unique(observations.stn)}")
+
+    # Or convert to a pandas DataFrame
+    print(observations.to_dataframe())
+
 
 Working with Orbits
 ----------------
@@ -66,51 +72,11 @@ Working with Orbits
     print(f"Eccentricity: {orbits.e}")
     print(f"Inclination: {orbits.i}")
 
-Submission History
----------------
 
-.. code-block:: python
+    # You can quickly convert to an adam_core.orbits.Orbit object,
+    # to be used with the adam_core propagators and other tools.
+    adam_core_orbits = orbits.orbits()
 
-    # Get submission history - returns MPCSubmissionHistory (Quivr table)
-    history = client.query_submission_history(["2013 RR165"])
-    
-    # Work with the data
-    print(f"Number of submissions: {len(history)}")
-    for submission in history:
-        print(f"Submission {submission.submission_id}: {submission.num_obs} observations")
-        print(f"Arc length: {submission.arc_length} days")
-
-Cross-Matching Observations
-------------------------
-
-.. code-block:: python
-
-    from adam_core.observations import ADESObservations
-
-    # Cross-match with ADES observations
-    matched = client.cross_match_observations(
-        ades_observations,
-        obstime_tolerance_seconds=30,
-        arcseconds_tolerance=2.0
-    )
-    
-    # Access matched data
-    print(f"Found {len(matched)} matches")
-    print(f"Average separation: {matched.separation_arcseconds.mean():.2f} arcsec")
-
-Finding Duplicates
----------------
-
-Find potential duplicate observations:
-
-.. code-block:: python
-
-    # Find duplicates for an object
-    duplicates = client.find_duplicates(
-        "2013 RR165",
-        obstime_tolerance_seconds=30,
-        arcseconds_tolerance=2.0
-    )
 
 A Note on Quivr
 -------------
