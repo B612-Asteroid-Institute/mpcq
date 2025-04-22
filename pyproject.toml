@@ -31,7 +31,8 @@ dependencies = [
     "numpy",
     "quivr",
     "google-cloud-bigquery-storage>=2.27.0",
-    "tqdm>=4.67.1"
+    "tqdm>=4.67.1",
+    "sqlalchemy>=2.0.40"
 ]
 
 [build-system]
@@ -76,6 +77,9 @@ docs-live = "sphinx-autobuild docs/source docs/build"
 
 
 [project.optional-dependencies]
+postgres = [
+    "psycopg2-binary",
+]
 dev = [
     "black",
     "ipython",
