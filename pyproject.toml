@@ -78,7 +78,7 @@ docs-live = "sphinx-autobuild docs/source docs/build"
 
 [project.optional-dependencies]
 postgres = [
-    "psycopg2-binary",
+    "adbc-driver-postgresql>=1.5.0",
 ]
 dev = [
     "black",
