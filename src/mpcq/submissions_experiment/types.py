@@ -1,0 +1,74 @@
+from dataclasses import dataclass
+
+import quivr as qv
+
+from ..qvsql import SQLQuivrTable
+
+
+class DiscoveryCandidates(qv.Table):
+    #: Candidate ID
+    trksub = qv.LargeStringColumn()
+
+
+class DiscoveryCandidateMembers(qv.Table):
+    #: Candidate ID
+    trksub = qv.LargeStringColumn()
+    #: Observation ID
+    obssubid = qv.LargeStringColumn()
+
+
+class AssociationCandidates(qv.Table):
+    #: MPC-style permanent ID
+    permid = qv.LargeStringColumn()
+    #: MPC-style provisional ID
+    provid = qv.LargeStringColumn(nullable=True)
+    #: Candidate ID
+    trksub = qv.LargeStringColumn()
+
+
+class AssociationMembers(qv.Table):
+    #: Candidate ID
+    trksub = qv.LargeStringColumn()
+    #: Observation ID
+    obssubid = qv.LargeStringColumn()
+
+
+class Submissions(qv.Table, SQLQuivrTable):
+    #: Submission ID
+    id = qv.LargeStringColumn()
+    #: MPC-assigned submission ID
+    mpc_submission_id = qv.LargeStringColumn(nullable=True)
+    #: Submission Type: discovery, association, identification
+    type = qv.LargeStringColumn()
+    #: Number of linkages in the submission
+    linkages = qv.Int64Column()
+    #: Number of observations in the submission
+    observations = qv.Int64Column()
+    #: Timestamp when the submission was created
+    created_at = qv.TimestampColumn("ms", tz="utc")
+    #: Timestamp when the submission was submitted
+    submitted_at = qv.TimestampColumn("ms", nullable=True, tz="utc")
+    #: Path to the submission file
+    file = qv.LargeStringColumn()
+    #: Comment for the submission
+    comment = qv.LargeStringColumn(nullable=True)
+    #: Error message if the submission failed
+    error = qv.LargeStringColumn(nullable=True)
+
+
+class SubmissionMembers(qv.Table, SQLQuivrTable):
+    #: Submission ID
+    submission_id = qv.LargeStringColumn()
+    #: MPC-assigned observation ID
+    mpc_obs_id = qv.LargeStringColumn(nullable=True)
+    #: MPC status of the observation
+    mpc_status = qv.LargeStringColumn(nullable=True)
+    #: trskub of the observation
+    trksub = qv.LargeStringColumn()
+
+
+@dataclass
+class Submitter:
+    first_name: str
+    last_name: str
+    email: str
