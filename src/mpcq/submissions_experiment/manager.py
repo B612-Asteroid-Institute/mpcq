@@ -1,8 +1,9 @@
+import datetime
 import logging
 import os
 import queue
 import sys
-from typing import Optional
+from typing import List, Optional
 
 import sqlalchemy as sq
 
@@ -184,3 +185,69 @@ class SubmissionManager:
         metadata.reflect(bind=engine)
 
         return cls(engine, metadata, os.path.abspath(directory))
+
+    def get_submissions(
+        self,
+        since: Optional[datetime.datetime] = None,
+        until: Optional[datetime.datetime] = None,
+        submission_ids: Optional[List[str]] = None,
+    ) -> Submissions:
+        """
+        Get submissions from the SubmissionManager tracking database.
+
+        Parameters
+        ----------
+        since : Optional[datetime.datetime], optional
+            The date and time to get submissions from, by default None.
+        until : Optional[datetime.datetime], optional
+            The date and time to get submissions until, by default None.
+        submission_ids : Optional[List[str]], optional
+            The IDs of the submissions to get, by default None.
+
+        Returns
+        -------
+        Submissions
+            The submissions.
+        """
+        statement = sq.select(self.tables["submissions"])
+        if since is not None:
+            statement = statement.where(
+                self.tables["submissions"].c.created_at >= since
+            )
+        if until is not None:
+            statement = statement.where(
+                self.tables["submissions"].c.created_at <= until
+            )
+        if submission_ids is not None:
+            statement = statement.where(
+                self.tables["submissions"].c.id.in_(submission_ids)
+            )
+
+        return Submissions.from_sql(self.engine, "submissions", statement=statement)
+
+    def get_submission_members(
+        self, submission_ids: List[str] = None
+    ) -> SubmissionMembers:
+        """
+        Get the members of a submission from the SubmissionManager tracking database.
+
+        Parameters
+        ----------
+        submission_ids : List[str]
+            The IDs of the submissions to get the members of.
+
+        Returns
+        -------
+        SubmissionMembers
+            The members of the submissions.
+        """
+        statement = sq.select(self.tables["submission_members"])
+        if submission_ids is not None:
+            statement = statement.where(
+                self.tables["submission_members"].c.submission_id.in_(submission_ids)
+            )
+
+        return SubmissionMembers.from_sql(
+            self.engine, "submission_members", statement=statement
+        )
+
