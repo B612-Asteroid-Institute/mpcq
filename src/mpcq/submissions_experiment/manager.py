@@ -1,14 +1,18 @@
-import datetime
 import logging
 import os
 import queue
 import sys
-from typing import List, Optional
+from datetime import datetime, timezone
+from typing import List, Optional, Tuple
 
+import pyarrow as pa
+import quivr as qv
 import sqlalchemy as sq
+from adam_core.observations.ades import ADES_to_string, ADESObservations, ObsContext
 
 from ..client import BigQueryMPCClient, MPCClient
-from .types import Submitter
+from .types import SubmissionMembers, Submissions, Submitter
+from .utils import generate_submission_id
 
 
 class SubmissionManager:
@@ -149,10 +153,13 @@ class SubmissionManager:
             "submission_members",
             metadata,
             sq.Column("submission_id", sq.String),
-            sq.Column("mpc_obs_id", sq.String, nullable=True),
-            sq.Column("mpc_status", sq.String, nullable=True),
             sq.Column("trksub", sq.String),
             sq.Column("obssubid", sq.String, primary_key=True),
+            sq.Column("mpc_obsid", sq.String, nullable=True),
+            sq.Column("mpc_status", sq.String, nullable=True),
+            sq.Column("mpc_permid", sq.String, nullable=True),
+            sq.Column("mpc_provid", sq.String, nullable=True),
+            sq.Column("updated_at", sq.DateTime),
         )
         metadata.create_all(engine)
 
@@ -188,8 +195,8 @@ class SubmissionManager:
 
     def get_submissions(
         self,
-        since: Optional[datetime.datetime] = None,
-        until: Optional[datetime.datetime] = None,
+        since: Optional[datetime] = None,
+        until: Optional[datetime] = None,
         submission_ids: Optional[List[str]] = None,
     ) -> Submissions:
         """
@@ -197,9 +204,9 @@ class SubmissionManager:
 
         Parameters
         ----------
-        since : Optional[datetime.datetime], optional
+        since : Optional[datetime], optional
             The date and time to get submissions from, by default None.
-        until : Optional[datetime.datetime], optional
+        until : Optional[datetime], optional
             The date and time to get submissions until, by default None.
         submission_ids : Optional[List[str]], optional
             The IDs of the submissions to get, by default None.
@@ -251,3 +258,134 @@ class SubmissionManager:
             self.engine, "submission_members", statement=statement
         )
 
+    def queue_for_submission(
+        self,
+        obscontexts: dict[str, ObsContext],
+        discovery_ades: Optional[List[ADESObservations]] = None,
+        association_ades: Optional[List[ADESObservations]] = None,
+        comment: Optional[str] = None,
+    ) -> Tuple[Submissions, SubmissionMembers]:
+        """
+        Queue ADES observations for discovery candidates or association candidates for submission.
+
+        This function populates the queue with submissions and submission members.
+
+        Parameters
+        ----------
+        obscontexts : dict[str, ObsContext]
+            The observation contexts for the ADES observations.
+        discovery_ades : Optional[List[ADESObservations]], optional
+            The discovery ADES observations, by default None.
+        association_ades : Optional[List[ADESObservations]], optional
+            The association ADES observations, by default None.
+        comment : Optional[str], optional
+            The comment for the submission, by default None.
+
+        Returns
+        -------
+        submissions : Submissions
+            The submissions.
+        """
+        submissions = Submissions.empty()
+        submission_members = SubmissionMembers.empty()
+
+        submission_id_prefix = datetime.now().strftime("%Y%m%d")
+        base_dir = os.path.join(self.submission_directory, submission_id_prefix)
+        os.makedirs(base_dir, exist_ok=True)
+
+        if discovery_ades is not None:
+            for i, discovery_ades_i in enumerate(discovery_ades):
+
+                submission_id = generate_submission_id(
+                    "discovery", prefix=submission_id_prefix
+                )
+
+                self.logger.info(
+                    f"Preparing discovery ADES {i + 1} for submission {submission_id_prefix}"
+                )
+
+                file_path = os.path.join(base_dir, f"{submission_id}.psv")
+
+                # Create a new submission
+                submission_i = Submissions.from_kwargs(
+                    id=[submission_id],
+                    mpc_submission_id=None,
+                    type=["discovery"],
+                    linkages=[len(discovery_ades_i.trkSub.unique())],
+                    observations=[len(discovery_ades_i)],
+                    created_at=[datetime.now().astimezone(timezone.utc)],
+                    submitted_at=None,
+                    file=[file_path],
+                    comment=[comment],
+                )
+
+                submission_members_i = SubmissionMembers.from_kwargs(
+                    submission_id=pa.repeat(submission_id, len(discovery_ades_i)),
+                    trksub=discovery_ades_i.trkSub,
+                    obssubid=discovery_ades_i.obsSubID,
+                )
+
+                self.logger.info(f"Saving discovery ADES to {file_path}")
+                with open(file_path, "w") as f:
+                    f.write(ADES_to_string(discovery_ades_i, obscontexts))
+
+                # Save submissions and submission members to the database
+                submission_i.to_sql(self.engine, "submissions")
+                submission_members_i.to_sql(self.engine, "submission_members")
+
+                submissions = qv.concatenate([submissions, submission_i])
+                submission_members = qv.concatenate(
+                    [submission_members, submission_members_i]
+                )
+
+                self.logger.info(f"Queueing submission {submission_id}")
+                self.queue.put((submission_i, submission_members_i))
+
+        if association_ades is not None:
+            for i, association_ades_i in enumerate(association_ades):
+
+                submission_id = generate_submission_id(
+                    "association", prefix=submission_id_prefix
+                )
+
+                self.logger.info(
+                    f"Preparing association ADES {i + 1} for submission {submission_id_prefix}"
+                )
+
+                file_path = os.path.join(base_dir, f"{submission_id}.psv")
+
+                # Create a new submission
+                submission_i = Submissions.from_kwargs(
+                    id=[submission_id],
+                    mpc_submission_id=None,
+                    type=["association"],
+                    linkages=[len(association_ades_i.trkSub.unique())],
+                    observations=[len(association_ades_i)],
+                    created_at=[datetime.now().astimezone(timezone.utc)],
+                    submitted_at=None,
+                    file=[file_path],
+                    comment=[comment],
+                )
+
+                submission_members_i = SubmissionMembers.from_kwargs(
+                    submission_id=pa.repeat(submission_id, len(association_ades_i)),
+                    trksub=association_ades_i.trkSub,
+                    obssubid=association_ades_i.obsSubID,
+                )
+
+                self.logger.info(f"Saving association ADES to {file_path}")
+                with open(file_path, "w") as f:
+                    f.write(ADES_to_string(association_ades_i, obscontexts))
+
+                # Save submissions and submission members to the database
+                submission_i.to_sql(self.engine, "submissions")
+                submission_members_i.to_sql(self.engine, "submission_members")
+
+                submissions = qv.concatenate([submissions, submission_i])
+                submission_members = qv.concatenate(
+                    [submission_members, submission_members_i]
+                )
+
+        self.logger.info(f"Queued {len(submissions)} submissions.")
+
+        return submissions, submission_members

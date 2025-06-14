@@ -59,12 +59,20 @@ class Submissions(qv.Table, SQLQuivrTable):
 class SubmissionMembers(qv.Table, SQLQuivrTable):
     #: Submission ID
     submission_id = qv.LargeStringColumn()
-    #: MPC-assigned observation ID
-    mpc_obs_id = qv.LargeStringColumn(nullable=True)
-    #: MPC status of the observation
-    mpc_status = qv.LargeStringColumn(nullable=True)
     #: trskub of the observation
     trksub = qv.LargeStringColumn()
+    #: Observation ID
+    obssubid = qv.LargeStringColumn()
+    #: MPC-assigned observation ID
+    mpc_obsid = qv.LargeStringColumn(nullable=True)
+    #: MPC status of the observation
+    mpc_status = qv.LargeStringColumn(nullable=True)
+    #: MPC-assigned association ID
+    mpc_permid = qv.LargeStringColumn(nullable=True)
+    #: MPC-assigned provisional ID
+    mpc_provid = qv.LargeStringColumn(nullable=True)
+    #: Last updated (when the observation was last queried for an update)
+    updated_at = qv.TimestampColumn("ms", tz="utc", nullable=True)
 
 
 @dataclass

@@ -1,5 +1,6 @@
-import datetime
-from typing import Iterator, List, Optional
+import uuid
+from datetime import datetime
+from typing import Iterator, List, Literal, Optional
 
 import numpy as np
 import pyarrow as pa
@@ -16,7 +17,7 @@ from .types import (
 )
 
 
-def round_to_nearest_millisecond(t: datetime.datetime) -> datetime.datetime:
+def round_to_nearest_millisecond(t: datetime) -> datetime:
     microseconds = np.ceil(t.microsecond / 1000).astype(int) * 1000
     return t.replace(microsecond=microseconds)
 
@@ -57,6 +58,29 @@ def split_into_max_size(
         ).column(column)
 
         yield table.apply_mask(pc.is_in(table.table.column(column), values_in))
+
+
+def generate_submission_id(
+    submission_type: Literal["discovery", "association", "identification"],
+    prefix: Optional[str] = None,
+) -> str:
+    """
+    Generate a submission ID based on the submission type and the current date.
+
+    Parameters
+    ----------
+    submission_type : Literal["discovery", "association", "identification"]
+        The type of submission to generate an ID for.
+
+    Returns
+    -------
+    str
+        The generated submission ID.
+    """
+    if prefix is None:
+        return f"{submission_type[0]}{uuid.uuid4().hex[:5]}"
+    else:
+        return f"{prefix}_{submission_type[0]}{uuid.uuid4().hex[:5]}"
 
 
 def candidates_to_ades(
