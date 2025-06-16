@@ -1,18 +1,29 @@
 import logging
 import os
-import queue
+import queue as qu
 import sys
-from datetime import datetime, timezone
-from typing import List, Optional, Tuple
+from datetime import datetime, timedelta, timezone
+from typing import Dict, List, Optional, Tuple
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import quivr as qv
 import sqlalchemy as sq
+from adam_core.observations import SourceCatalog
 from adam_core.observations.ades import ADES_to_string, ADESObservations, ObsContext
+from tqdm import tqdm
 
 from ..client import BigQueryMPCClient, MPCClient
-from .types import SubmissionMembers, Submissions, Submitter
-from .utils import generate_submission_id
+from .types import (
+    AssociationCandidates,
+    AssociationMembers,
+    DiscoveryCandidateMembers,
+    DiscoveryCandidates,
+    SubmissionMembers,
+    Submissions,
+    Submitter,
+)
+from .utils import candidates_to_ades, generate_submission_id
 
 
 class SubmissionManager:
@@ -26,8 +37,55 @@ class SubmissionManager:
         self.directory = directory
         self.submission_directory = os.path.join(directory, "submissions")
         self.submitter = None
-        self.queue = queue.Queue()
         self.setup_logging()
+        self.load_queue()
+
+    @property
+    def queue(self) -> qu.Queue:
+        """
+        The queue of submissions to submit to the MPC.
+        """
+        return self._queue
+
+    @queue.setter
+    def queue(self, value: qu.Queue) -> None:
+        """
+        Set the queue of submissions to submit to the MPC.
+        """
+        raise NotImplementedError(
+            "The queue is read-only. To reload the queue, run self.reload_queue()"
+        )
+
+    @queue.deleter
+    def queue(self) -> None:
+        """
+        Delete the queue of submissions to submit to the MPC.
+        """
+        raise NotImplementedError(
+            "The queue is read-only. To clear the queue, run self.clear_queue()"
+        )
+
+    def load_queue(self) -> None:
+        """
+        Load the last day's queue of submissions to submit to the MPC.
+        """
+        self.clear_queue()
+
+        # Read submissions from the database
+        submissions = self.get_submissions(
+            since=datetime.now(timezone.utc) - timedelta(days=1)
+        )
+
+        # Filter for those that are unsubmitted
+        submissions = submissions.apply_mask(pc.is_null(submissions.mpc_submission_id))
+        self.logger.info(f"Found {len(submissions)} unsubmitted submissions to queue")
+        self.queue_for_submission(submissions)
+
+    def clear_queue(self) -> None:
+        """
+        Clear the queue of submissions to submit to the MPC.
+        """
+        self._queue = qu.Queue()
 
     def setup_logging(self) -> None:
         """
@@ -258,34 +316,113 @@ class SubmissionManager:
             self.engine, "submission_members", statement=statement
         )
 
-    def queue_for_submission(
+    def prepare_submissions(
         self,
-        obscontexts: dict[str, ObsContext],
-        discovery_ades: Optional[List[ADESObservations]] = None,
-        association_ades: Optional[List[ADESObservations]] = None,
-        comment: Optional[str] = None,
+        source_catalog: SourceCatalog,
+        obscontexts: Dict[str, ObsContext],
+        discovery_candidates: Optional[DiscoveryCandidates] = None,
+        discovery_candidate_members: Optional[DiscoveryCandidateMembers] = None,
+        association_candidates: Optional[AssociationCandidates] = None,
+        association_members: Optional[AssociationMembers] = None,
+        max_observations_per_file: Optional[int] = 10000,
+        discovery_comment: Optional[str] = None,
+        association_comment: Optional[str] = None,
     ) -> Tuple[Submissions, SubmissionMembers]:
         """
-        Queue ADES observations for discovery candidates or association candidates for submission.
+        Generate ADES PSV files for the given candidates and their members. The ADES PSV files are saved to the submission directory
+        in a folder with the current date as the prefix.
 
-        This function populates the queue with submissions and submission members.
+        Discovery candidate submissions will have the type "discovery" and association candidate submissions will have the type "association".
 
         Parameters
         ----------
-        obscontexts : dict[str, ObsContext]
-            The observation contexts for the ADES observations.
-        discovery_ades : Optional[List[ADESObservations]], optional
-            The discovery ADES observations, by default None.
-        association_ades : Optional[List[ADESObservations]], optional
-            The association ADES observations, by default None.
-        comment : Optional[str], optional
-            The comment for the submission, by default None.
+        source_catalog : SourceCatalog
+            The source catalog.
+        obscontexts : Dict[str, ObsContext]
+            The ObsContexts to use for the ADES header data.
+        discovery_candidates : Optional[DiscoveryCandidates], optional
+            The discovery candidates. These are objects believed to be newly observed.
+        discovery_candidate_members : Optional[DiscoveryCandidateMembers], optional
+            The observation members of the discovery candidates.
+        association_candidates : Optional[AssociationCandidates], optional
+            The association candidates. These are objects believed to be associated with a known object.
+        association_members : Optional[AssociationMembers], optional
+            The observation members of the association candidates.
+        max_observations_per_file : Optional[int], optional
+            The maximum number of observations per file, by default 100000.
+        discovery_comment : Optional[str], optional
+            The comment for the discovery submissions, by default None.
+        association_comment : Optional[str], optional
+            The comment for the association submissions, by default None.
 
         Returns
         -------
-        submissions : Submissions
-            The submissions.
+        discovery_ades, association_ades : tuple[List[ADESObservations], List[ADESObservations]]
+            The ADESObservations for the discovery and association candidates.
         """
+        if discovery_candidates is None and association_candidates is None:
+            raise ValueError(
+                "At least one of discovery_candidates or association_candidates must be provided."
+            )
+
+        if discovery_candidates is not None:
+            if discovery_candidate_members is None:
+                raise ValueError(
+                    "discovery_candidate_members must be provided if discovery_candidates is provided."
+                )
+
+            if not pc.all(
+                pc.is_in(
+                    discovery_candidates.trksub, discovery_candidate_members.trksub
+                )
+            ).as_py():
+                raise ValueError(
+                    "All trksubs in discovery_candidates must be present in discovery_candidate_members."
+                )
+
+            if not pc.all(
+                pc.is_in(
+                    discovery_candidate_members.trksub, discovery_candidates.trksub
+                )
+            ).as_py():
+                raise ValueError(
+                    "All trksubs in discovery_candidate_members must be present in discovery_candidates."
+                )
+
+            if not pc.all(
+                pc.is_in(discovery_candidate_members.obssubid, source_catalog.id)
+            ).as_py():
+                raise ValueError(
+                    "All obssubids in discovery_candidate_members must be present in source_catalog."
+                )
+
+        if association_candidates is not None:
+            if association_members is None:
+                raise ValueError(
+                    "association_members must be provided if association_candidates is provided."
+                )
+
+            if not pc.all(
+                pc.is_in(association_candidates.trksub, association_members.trksub)
+            ).as_py():
+                raise ValueError(
+                    "All trksubs in association_candidates must be present in association_members."
+                )
+
+            if not pc.all(
+                pc.is_in(association_members.trksub, association_candidates.trksub)
+            ).as_py():
+                raise ValueError(
+                    "All trksubs in association_members must be present in association_candidates."
+                )
+
+            if not pc.all(
+                pc.is_in(association_members.obssubid, source_catalog.id)
+            ).as_py():
+                raise ValueError(
+                    "All obssubids in association_members must be present in source_catalog."
+                )
+
         submissions = Submissions.empty()
         submission_members = SubmissionMembers.empty()
 
@@ -293,15 +430,31 @@ class SubmissionManager:
         base_dir = os.path.join(self.submission_directory, submission_id_prefix)
         os.makedirs(base_dir, exist_ok=True)
 
-        if discovery_ades is not None:
-            for i, discovery_ades_i in enumerate(discovery_ades):
+        # Create ADES Observations for discovery candidates
+        if discovery_candidates is not None:
+            if len(discovery_candidates) == 0:
+                discovery_ades = [ADESObservations.empty()]
+            else:
+                discovery_ades = candidates_to_ades(
+                    discovery_candidates,
+                    discovery_candidate_members,
+                    source_catalog,
+                    max_observations_per_table=max_observations_per_file,
+                )
+
+            self.logger.info(
+                f"Processing {len(discovery_ades)} discovery ADES files for submission {submission_id_prefix}"
+            )
+            for i, discovery_ades_i in enumerate(
+                tqdm(discovery_ades, desc="Processing discovery ADES files")
+            ):
 
                 submission_id = generate_submission_id(
                     "discovery", prefix=submission_id_prefix
                 )
 
                 self.logger.info(
-                    f"Preparing discovery ADES {i + 1} for submission {submission_id_prefix}"
+                    f"Preparing discovery ADES file {i + 1} ({submission_id})"
                 )
 
                 file_path = os.path.join(base_dir, f"{submission_id}.psv")
@@ -316,7 +469,7 @@ class SubmissionManager:
                     created_at=[datetime.now().astimezone(timezone.utc)],
                     submitted_at=None,
                     file=[file_path],
-                    comment=[comment],
+                    comment=[discovery_comment],
                 )
 
                 submission_members_i = SubmissionMembers.from_kwargs(
@@ -332,24 +485,40 @@ class SubmissionManager:
                 # Save submissions and submission members to the database
                 submission_i.to_sql(self.engine, "submissions")
                 submission_members_i.to_sql(self.engine, "submission_members")
+                self.logger.debug(
+                    f"Saved discovery submission {submission_id} to database"
+                )
 
                 submissions = qv.concatenate([submissions, submission_i])
                 submission_members = qv.concatenate(
                     [submission_members, submission_members_i]
                 )
 
-                self.logger.info(f"Queueing submission {submission_id}")
-                self.queue.put((submission_i, submission_members_i))
+        # Create ADES Observations for association candidates
+        if association_candidates is not None:
+            if len(association_candidates) == 0:
+                association_ades = [ADESObservations.empty()]
+            else:
+                association_ades = candidates_to_ades(
+                    association_candidates,
+                    association_members,
+                    source_catalog,
+                    max_observations_per_table=max_observations_per_file,
+                )
 
-        if association_ades is not None:
-            for i, association_ades_i in enumerate(association_ades):
+            self.logger.info(
+                f"Processing {len(association_ades)} association ADES files for submission {submission_id_prefix}"
+            )
+            for i, association_ades_i in enumerate(
+                tqdm(association_ades, desc="Processing association ADES files")
+            ):
 
                 submission_id = generate_submission_id(
                     "association", prefix=submission_id_prefix
                 )
 
                 self.logger.info(
-                    f"Preparing association ADES {i + 1} for submission {submission_id_prefix}"
+                    f"Preparing association ADES file {i + 1} ({submission_id})"
                 )
 
                 file_path = os.path.join(base_dir, f"{submission_id}.psv")
@@ -364,7 +533,7 @@ class SubmissionManager:
                     created_at=[datetime.now().astimezone(timezone.utc)],
                     submitted_at=None,
                     file=[file_path],
-                    comment=[comment],
+                    comment=[association_comment],
                 )
 
                 submission_members_i = SubmissionMembers.from_kwargs(
@@ -380,12 +549,42 @@ class SubmissionManager:
                 # Save submissions and submission members to the database
                 submission_i.to_sql(self.engine, "submissions")
                 submission_members_i.to_sql(self.engine, "submission_members")
+                self.logger.debug(
+                    f"Saved association submission {submission_id} to database"
+                )
 
                 submissions = qv.concatenate([submissions, submission_i])
                 submission_members = qv.concatenate(
                     [submission_members, submission_members_i]
                 )
 
-        self.logger.info(f"Queued {len(submissions)} submissions.")
-
         return submissions, submission_members
+
+    def queue_for_submission(
+        self,
+        submissions: Submissions,
+    ) -> Tuple[Submissions, SubmissionMembers]:
+        """
+        Queue the given submissions for submission to the MPC. This function will populate
+        the queue with the submission ID and the submission file path.
+
+        Parameters
+        ----------
+        submissions : Submissions
+            The submissions to queue for submission to the MPC.
+
+        Returns
+        -------
+        submissions : Submissions
+            The submissions.
+        """
+        for submission in submissions:
+            submission_id = submission.id[0].as_py()
+            submission_file = submission.file[0].as_py()
+
+            assert os.path.exists(
+                submission_file
+            ), f"Submission file {submission_file} does not exist"
+
+            self.logger.info(f"Queuing submission {submission_id} for submission")
+            self._queue.put((submission_id, submission_file))
