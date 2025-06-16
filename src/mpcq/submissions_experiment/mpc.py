@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 
 
-class MPCSubmission(ABC):
+class MPCSubmissionClient(ABC):
 
     @abstractmethod
     def submit_ades():

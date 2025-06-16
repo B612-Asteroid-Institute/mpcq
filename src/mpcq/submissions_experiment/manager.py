@@ -14,6 +14,7 @@ from adam_core.observations.ades import ADES_to_string, ADESObservations, ObsCon
 from tqdm import tqdm
 
 from ..client import BigQueryMPCClient, MPCClient
+from .mpc import MPCSubmissionClient
 from .types import (
     AssociationCandidates,
     AssociationMembers,
@@ -23,7 +24,11 @@ from .types import (
     Submissions,
     Submitter,
 )
-from .utils import candidates_to_ades, generate_submission_id
+from .utils import (
+    candidates_to_ades,
+    generate_submission_id,
+    round_to_nearest_millisecond,
+)
 
 
 class SubmissionManager:
@@ -36,7 +41,8 @@ class SubmissionManager:
         self.tables = metadata.tables
         self.directory = directory
         self.submission_directory = os.path.join(directory, "submissions")
-        self.submitter = None
+        self._submitter = None
+        self._mpc_submission_client = None
         self.setup_logging()
         self.load_queue()
 
@@ -64,6 +70,54 @@ class SubmissionManager:
         raise NotImplementedError(
             "The queue is read-only. To clear the queue, run self.clear_queue()"
         )
+
+    @property
+    def submitter(self) -> Submitter:
+        """
+        The submitter details.
+        """
+        return self._submitter
+
+    @submitter.setter
+    def submitter(self, value: Submitter) -> None:
+        """
+        Set the submitter details.
+        """
+        self._submitter = value
+        self.logger.info(
+            f"Submitter set to {value.first_name} {value.last_name} ({value.email})."
+        )
+
+    @submitter.deleter
+    def submitter(self) -> None:
+        """
+        Delete the submitter details.
+        """
+        self._submitter = None
+        self.logger.info("Submitter deleted.")
+
+    @property
+    def mpc_submission_client(self) -> MPCSubmissionClient:
+        """
+        The MPC submission client.
+        """
+        return self._mpc_submission_client
+
+    @mpc_submission_client.setter
+    def mpc_submission_client(self, value: MPCSubmissionClient) -> None:
+        """
+        Set the MPC submission client.
+        """
+        self._mpc_submission_client = value
+        self.logger.info(f"MPC submission client set to {value.__class__.__name__}.")
+
+    @mpc_submission_client.deleter
+    def mpc_submission_client(self) -> None:
+        """
+        Delete the MPC submission client.
+        """
+        self._mpc_submission_client = None
+        self.logger.info("MPC submission client deleted.")
 
     def load_queue(self) -> None:
         """
@@ -146,26 +200,6 @@ class SubmissionManager:
             client = BigQueryMPCClient()
 
         self.client = client
-
-    def set_submitter(self, first_name: str, last_name: str, email: str) -> None:
-        """
-        Set the user submitting the observations.
-
-        Parameters
-        ----------
-        first_name : str
-            The first name of the submitter. E.g. "John".
-        last_name : str
-            The last name of the submitter. E.g. "Doe".
-        email : str
-            The email address of the submitter. E.g. "john.doe@university.edu"
-
-        Returns
-        -------
-        None
-        """
-        self.submitter = Submitter(first_name, last_name, email)
-        self.logger.info(f"Submitter set to {first_name} {last_name} ({email}).")
 
     @classmethod
     def create(cls, directory: str) -> "SubmissionManager":
@@ -324,7 +358,7 @@ class SubmissionManager:
         discovery_candidate_members: Optional[DiscoveryCandidateMembers] = None,
         association_candidates: Optional[AssociationCandidates] = None,
         association_members: Optional[AssociationMembers] = None,
-        max_observations_per_file: Optional[int] = 10000,
+        max_observations_per_file: Optional[int] = 50000,
         discovery_comment: Optional[str] = None,
         association_comment: Optional[str] = None,
     ) -> Tuple[Submissions, SubmissionMembers]:
@@ -454,7 +488,7 @@ class SubmissionManager:
                 )
 
                 self.logger.info(
-                    f"Preparing discovery ADES file {i + 1} ({submission_id})"
+                    f"Preparing discovery ADES file {i + 1} ('{submission_id}')"
                 )
 
                 file_path = os.path.join(base_dir, f"{submission_id}.psv")
@@ -518,7 +552,7 @@ class SubmissionManager:
                 )
 
                 self.logger.info(
-                    f"Preparing association ADES file {i + 1} ({submission_id})"
+                    f"Preparing association ADES file {i + 1} ('{submission_id}')"
                 )
 
                 file_path = os.path.join(base_dir, f"{submission_id}.psv")
@@ -550,7 +584,7 @@ class SubmissionManager:
                 submission_i.to_sql(self.engine, "submissions")
                 submission_members_i.to_sql(self.engine, "submission_members")
                 self.logger.debug(
-                    f"Saved association submission {submission_id} to database"
+                    f"Saved association submission '{submission_id}' to database"
                 )
 
                 submissions = qv.concatenate([submissions, submission_i])
@@ -586,5 +620,131 @@ class SubmissionManager:
                 submission_file
             ), f"Submission file {submission_file} does not exist"
 
-            self.logger.info(f"Queuing submission {submission_id} for submission")
+            self.logger.info(f"Queuing submission '{submission_id}' for submission")
             self._queue.put((submission_id, submission_file))
+
+    def submit_from_queue(self) -> None:
+        """
+        Submit the next submission in the queue.
+
+        Returns
+        -------
+        None
+        """
+        if self.submitter is None:
+            raise ValueError("Submitter not set")
+
+        if self.queue.qsize() == 0:
+            self.logger.info("No submissions in the queue")
+            return
+
+        submission_id, submission_file = self.queue.get()
+
+        self.logger.info(f"Retrieved submission '{submission_id}' from the queue")
+
+        submission = self.get_submissions(submission_ids=[submission_id])
+        submission_members = self.get_submission_members(submission_ids=[submission_id])
+        if len(submission) == 0:
+            self.logger.error(f"Submission {submission_id} not found in the database")
+            raise ValueError(f"Submission {submission_id} not found in the database")
+
+        if len(submission_members) == 0:
+            self.logger.error(
+                f"Submission members '{submission_id}' not found in the database"
+            )
+
+            raise ValueError(
+                f"Submission members '{submission_id}' not found in the database"
+            )
+
+        submission_type = submission.type[0].as_py()
+        submission_file = submission.file[0].as_py()
+        submission_comment = submission.comment[0].as_py()
+
+        if submission_type == "discovery" or submission_type == "association":
+
+            try:
+                mpc_submission_id, submission_time = (
+                    self.mpc_submission_client.submit_ades(
+                        submission_file,
+                        self.submitter.email,
+                        submission_comment,
+                    )
+                )
+                self._set_submission_success(
+                    submission_id, mpc_submission_id, submission_time
+                )
+
+            except Exception as e:
+                self.logger.error(f"Error submitting submission '{submission_id}': {e}")
+                self._set_submission_failure(submission_id, error=e)
+                return
+
+        elif submission_type == "identification":
+            raise NotImplementedError("Identifications are not implemented yet")
+        else:
+            raise ValueError(f"Invalid submission type: {submission_type}")
+
+        self.logger.info(f"Submission '{submission_id}' submitted successfully")
+
+    def _set_submission_success(
+        self,
+        submission_id: str,
+        mpc_submission_id: str,
+        submitted_at: datetime,
+    ):
+        # Insure datetime is in UTC and rounded to the nearest millisecond
+        submitted_at = submitted_at.astimezone(timezone.utc)
+        submitted_at = round_to_nearest_millisecond(submitted_at)
+
+        # Check current status and raise an error if already submitted
+        with self.engine.begin() as conn:
+
+            stmt = sq.select(self.tables["submissions"].c.submitted_at).where(
+                self.tables["submissions"].c.id == submission_id
+            )
+
+            result = conn.execute(stmt).fetchone()[0]
+
+            if result:
+                raise ValueError(
+                    f"Submission '{submission_id}' has already been marked as submitted."
+                )
+
+        # Now, update the submission to mark it as submitted
+        with self.engine.begin() as conn:
+
+            stmt = (
+                sq.update(self.tables["submissions"])
+                .where(self.tables["submissions"].c.id == submission_id)
+                .values(submitted_at=submitted_at, mpc_submission_id=mpc_submission_id)
+            )
+
+            conn.execute(stmt)
+
+            self.logger.info(f"Submission '{submission_id}' marked as submitted.")
+
+        return
+
+    def _set_submission_failure(
+        self,
+        submission_id: str,
+        error: Exception,
+        mpc_submission_id: Optional[str] = None,
+    ):
+        with self.engine.begin() as conn:
+
+            stmt = (
+                sq.update(self.tables["submissions"])
+                .where(self.tables["submissions"].c.id == submission_id)
+                .values(
+                    submitted_at=None,
+                    mpc_submission_id=mpc_submission_id,
+                    error=str(error),
+                )
+            )
+
+            conn.execute(stmt)
+            self.logger.error(f"Submission '{submission_id}' failed to submit: {error}")
+
+        return
