@@ -10,3 +10,7 @@ class MPCSubmissionClient(ABC):
     @abstractmethod
     def submit_identifications():
         pass
+
+    @abstractmethod
+    def query_wamo():
+        pass
