@@ -30,6 +30,22 @@ from .utils import (
     round_to_nearest_millisecond,
 )
 
+DEFAULT_ADES_CONFIG = {
+    "seconds_precision": 3,
+    "columns_precision": {
+        "ra": 9,
+        "dec": 9,
+        "rmsRACosDec": 5,
+        "rmsDec": 5,
+        "rmsCorr": 8,
+        "mag": 4,
+        "rmsMag": 4,
+        "exp": 2,
+        "logSNR": 2,
+        "seeing": 2,
+    },
+}
+
 
 class SubmissionManager:
 
@@ -361,6 +377,8 @@ class SubmissionManager:
         max_observations_per_file: Optional[int] = 50000,
         discovery_comment: Optional[str] = None,
         association_comment: Optional[str] = None,
+        columns_precision: Optional[Dict[str, int]] = None,
+        seconds_precision: Optional[int] = None,
     ) -> Tuple[Submissions, SubmissionMembers]:
         """
         Generate ADES PSV files for the given candidates and their members. The ADES PSV files are saved to the submission directory
@@ -388,6 +406,10 @@ class SubmissionManager:
             The comment for the discovery submissions, by default None.
         association_comment : Optional[str], optional
             The comment for the association submissions, by default None.
+        columns_precision : Optional[Dict[str, int]], optional
+            The precision for the columns in the ADES files.
+        seconds_precision : Optional[int], optional
+            The precision for the seconds in the ADES files.
 
         Returns
         -------
@@ -457,6 +479,11 @@ class SubmissionManager:
                     "All obssubids in association_members must be present in source_catalog."
                 )
 
+        if columns_precision is None:
+            columns_precision = DEFAULT_ADES_CONFIG["columns_precision"]
+        if seconds_precision is None:
+            seconds_precision = DEFAULT_ADES_CONFIG["seconds_precision"]
+
         submissions = Submissions.empty()
         submission_members = SubmissionMembers.empty()
 
@@ -514,7 +541,14 @@ class SubmissionManager:
 
                 self.logger.info(f"Saving discovery ADES to {file_path}")
                 with open(file_path, "w") as f:
-                    f.write(ADES_to_string(discovery_ades_i, obscontexts))
+                    f.write(
+                        ADES_to_string(
+                            discovery_ades_i,
+                            obscontexts,
+                            columns_precision=columns_precision,
+                            seconds_precision=seconds_precision,
+                        )
+                    )
 
                 # Save submissions and submission members to the database
                 submission_i.to_sql(self.engine, "submissions")
@@ -578,7 +612,14 @@ class SubmissionManager:
 
                 self.logger.info(f"Saving association ADES to {file_path}")
                 with open(file_path, "w") as f:
-                    f.write(ADES_to_string(association_ades_i, obscontexts))
+                    f.write(
+                        ADES_to_string(
+                            association_ades_i,
+                            obscontexts,
+                            columns_precision=columns_precision,
+                            seconds_precision=seconds_precision,
+                        )
+                    )
 
                 # Save submissions and submission members to the database
                 submission_i.to_sql(self.engine, "submissions")
