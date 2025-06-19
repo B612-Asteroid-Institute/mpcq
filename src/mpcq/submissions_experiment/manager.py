@@ -23,6 +23,7 @@ from .types import (
     SubmissionMembers,
     Submissions,
     Submitter,
+    Submitters,
 )
 from .utils import (
     candidates_to_ades,
@@ -94,16 +95,6 @@ class SubmissionManager:
         """
         return self._submitter
 
-    @submitter.setter
-    def submitter(self, value: Submitter) -> None:
-        """
-        Set the submitter details.
-        """
-        self._submitter = value
-        self.logger.info(
-            f"Submitter set to {value.first_name} {value.last_name} ({value.email})."
-        )
-
     @submitter.deleter
     def submitter(self) -> None:
         """
@@ -134,6 +125,112 @@ class SubmissionManager:
         """
         self._mpc_submission_client = None
         self.logger.info("MPC submission client deleted.")
+
+    def select_submitter(self) -> None:
+        """
+        Select the submitter details.
+        """
+        # Get all submitters from database
+        with self.engine.begin() as conn:
+            statement = sq.select(self.tables["submitters"])
+            result = conn.execute(statement)
+            submitters = result.fetchall()
+
+        if len(submitters) > 0:
+            print("\nAvailable submitters:")
+            for i, submitter in enumerate(submitters):
+                print(
+                    f"{i+1}. {submitter.first_name} {submitter.last_name} ({submitter.email})"
+                )
+            print("\n0. Add new submitter")
+
+            while True:
+                try:
+                    choice = int(
+                        input(
+                            "\nSelect submitter (0-{num}): ".format(num=len(submitters))
+                        )
+                    )
+                    if 0 <= choice <= len(submitters):
+                        break
+                    print("Invalid choice. Please try again.")
+                except ValueError:
+                    print("Invalid input. Please enter a number.")
+
+            if choice == 0:
+                self._prompt_new_submitter()
+            else:
+                selected = submitters[choice - 1]
+                self._submitter = Submitter(
+                    first_name=selected.first_name,
+                    last_name=selected.last_name,
+                    email=selected.email,
+                    institution=selected.institution if selected.institution else None,
+                    id=selected.id,
+                )
+        else:
+            print("No submitters found in database.")
+            self._prompt_new_submitter()
+
+    def _prompt_new_submitter(self) -> None:
+        """Helper method to add a new submitter to the database."""
+
+        while True:
+            first_name = input("Enter first name: ")
+            last_name = input("Enter last name: ")
+            email = input("Enter email: ")
+            institution = input("Enter institution (optional): ") or None
+
+            # Create new submitter
+            new_submitter = Submitter(
+                first_name=first_name,
+                last_name=last_name,
+                email=email,
+                institution=institution,
+            )
+
+            # Confirm if
+            print(
+                f"New submitter:\n first_name: {new_submitter.first_name}\n last_name: {new_submitter.last_name}\n email: {new_submitter.email}\n institution: {new_submitter.institution}"
+            )
+            confirm = input("Is this correct? (y/n): ")
+            if confirm == "y":
+                break
+            else:
+                print("Please try again.")
+
+        with self.engine.begin() as conn:
+            statement = (
+                self.tables["submitters"]
+                .insert()
+                .values(
+                    first_name=first_name,
+                    last_name=last_name,
+                    email=email,
+                    institution=institution if institution else None,
+                    created_at=round_to_nearest_millisecond(datetime.now(timezone.utc)),
+                )
+            )
+            conn.execute(statement)
+            conn.commit()
+
+        with self.engine.begin() as conn:
+            submitter_id = conn.execute(
+                sq.select(self.tables["submitters"].c.id).order_by(
+                    self.tables["submitters"].c.id.desc()
+                )
+            ).fetchone()[0]
+
+        self._submitter = Submitter(
+            first_name=first_name,
+            last_name=last_name,
+            email=email,
+            institution=institution if institution else None,
+            id=submitter_id,
+        )
+        self.logger.info(
+            f"New submitter added: {self.submitter.first_name} {self.submitter.last_name}, {self.submitter.email}, {self.submitter.institution}."
+        )
 
     def load_queue(self) -> None:
         """
@@ -247,6 +344,7 @@ class SubmissionManager:
             metadata,
             sq.Column("id", sq.String, primary_key=True),
             sq.Column("mpc_submission_id", sq.String, nullable=True),
+            sq.Column("submitter_id", sq.Integer),
             sq.Column("type", sq.String),
             sq.Column("linkages", sq.Integer),
             sq.Column("observations", sq.Integer),
@@ -268,6 +366,17 @@ class SubmissionManager:
             sq.Column("mpc_permid", sq.String, nullable=True),
             sq.Column("mpc_provid", sq.String, nullable=True),
             sq.Column("updated_at", sq.DateTime),
+        )
+
+        sq.Table(
+            "submitters",
+            metadata,
+            sq.Column("id", sq.Integer, primary_key=True, autoincrement=True),
+            sq.Column("first_name", sq.String),
+            sq.Column("last_name", sq.String),
+            sq.Column("email", sq.String),
+            sq.Column("institution", sq.String, nullable=True),
+            sq.Column("created_at", sq.DateTime),
         )
         metadata.create_all(engine)
 
@@ -300,6 +409,12 @@ class SubmissionManager:
         metadata.reflect(bind=engine)
 
         return cls(engine, metadata, os.path.abspath(directory))
+
+    def get_submitters(self) -> Submitters:
+        """
+        Get the submitters from the SubmissionManager tracking database.
+        """
+        return Submitters.from_sql(self.engine, "submitters")
 
     def get_submissions(
         self,
@@ -479,6 +594,10 @@ class SubmissionManager:
                     "All obssubids in association_members must be present in source_catalog."
                 )
 
+        if self._submitter is None:
+            self.select_submitter()
+        submitter_id = self._submitter.id
+
         if columns_precision is None:
             columns_precision = DEFAULT_ADES_CONFIG["columns_precision"]
         if seconds_precision is None:
@@ -531,6 +650,7 @@ class SubmissionManager:
                     submitted_at=None,
                     file=[file_path],
                     comment=[discovery_comment],
+                    submitter_id=[submitter_id],
                 )
 
                 submission_members_i = SubmissionMembers.from_kwargs(
@@ -550,12 +670,21 @@ class SubmissionManager:
                         )
                     )
 
-                # Save submissions and submission members to the database
-                submission_i.to_sql(self.engine, "submissions")
-                submission_members_i.to_sql(self.engine, "submission_members")
-                self.logger.debug(
-                    f"Saved discovery submission {submission_id} to database"
-                )
+                try:
+                    # Save submissions and submission members to the database
+                    submission_members_i.to_sql(
+                        self.engine, "submission_members", if_exists="append"
+                    )
+                    submission_i.to_sql(self.engine, "submissions", if_exists="append")
+                    self.logger.debug(
+                        f"Saved discovery submission {submission_id} to database"
+                    )
+                except Exception as e:
+                    self.logger.error(
+                        f"Error saving discovery submission {submission_id} to database: {e}"
+                    )
+                    os.remove(file_path)
+                    raise e
 
                 submissions = qv.concatenate([submissions, submission_i])
                 submission_members = qv.concatenate(
@@ -602,6 +731,7 @@ class SubmissionManager:
                     submitted_at=None,
                     file=[file_path],
                     comment=[association_comment],
+                    submitter_id=[submitter_id],
                 )
 
                 submission_members_i = SubmissionMembers.from_kwargs(
@@ -621,12 +751,21 @@ class SubmissionManager:
                         )
                     )
 
-                # Save submissions and submission members to the database
-                submission_i.to_sql(self.engine, "submissions")
-                submission_members_i.to_sql(self.engine, "submission_members")
-                self.logger.debug(
-                    f"Saved association submission '{submission_id}' to database"
-                )
+                try:
+                    # Save submissions and submission members to the database
+                    submission_members_i.to_sql(
+                        self.engine, "submission_members", if_exists="append"
+                    )
+                    submission_i.to_sql(self.engine, "submissions", if_exists="append")
+                    self.logger.debug(
+                        f"Saved association submission {submission_id} to database"
+                    )
+                except Exception as e:
+                    self.logger.error(
+                        f"Error saving association submission {submission_id} to database: {e}"
+                    )
+                    os.remove(file_path)
+                    raise e
 
                 submissions = qv.concatenate([submissions, submission_i])
                 submission_members = qv.concatenate(
@@ -763,7 +902,9 @@ class SubmissionManager:
 
             conn.execute(stmt)
 
-            self.logger.info(f"Submission '{submission_id}' marked as submitted.")
+            self.logger.info(
+                f"Submission '{submission_id}' marked as submitted (MPC submission ID: '{mpc_submission_id}')."
+            )
 
         return
 
@@ -789,3 +930,4 @@ class SubmissionManager:
             self.logger.error(f"Submission '{submission_id}' failed to submit: {error}")
 
         return
+
