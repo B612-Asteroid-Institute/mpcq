@@ -791,6 +791,46 @@ class SubmissionManager:
 
         return submissions, submission_members
 
+    def delete_prepared_submissions(self) -> None:
+        """
+        Delete any submissions (and their files) that have not been submitted.
+
+        Returns
+        -------
+        None
+        """
+        submissions = self.get_submissions()
+        submissions_to_clear = submissions.apply_mask(
+            pc.is_null(submissions.submitted_at)
+        )
+
+        for submission in submissions_to_clear:
+            submission_file = submission.file[0].as_py()
+            if os.path.exists(submission_file):
+                os.remove(submission_file)
+            self.logger.debug(f"Removed submission file {submission_file}")
+
+        with self.engine.begin() as conn:
+            stmt = sq.delete(self.tables["submissions"]).where(
+                self.tables["submissions"].c.id.in_(submissions_to_clear.id.to_pylist())
+            )
+            conn.execute(stmt)
+            self.logger.info(
+                f"Cleared {len(submissions_to_clear)} submissions from the database"
+            )
+
+            stmt = sq.delete(self.tables["submission_members"]).where(
+                self.tables["submission_members"].c.submission_id.in_(
+                    submissions_to_clear.id.to_pylist()
+                )
+            )
+            conn.execute(stmt)
+            self.logger.info(
+                f"Cleared {len(submissions_to_clear)} submission members from the database"
+            )
+
+        return
+
     def queue_for_submission(
         self,
         submissions: Submissions,
