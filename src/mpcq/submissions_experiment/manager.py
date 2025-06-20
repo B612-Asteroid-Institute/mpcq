@@ -410,11 +410,28 @@ class SubmissionManager:
 
         return cls(engine, metadata, os.path.abspath(directory))
 
-    def get_submitters(self) -> Submitters:
+    def get_submitters(self, submitter_ids: Optional[List[int]] = None) -> Submitters:
         """
         Get the submitters from the SubmissionManager tracking database.
+
+        Parameters
+        ----------
+        submitter_ids : Optional[List[int]], optional
+            The IDs of the submitters to get, by default None.
+
+        Returns
+        -------
+        Submitters
+            The submitters.
         """
-        return Submitters.from_sql(self.engine, "submitters")
+        if submitter_ids is not None:
+            statement = sq.select(self.tables["submitters"]).where(
+                self.tables["submitters"].c.id.in_(submitter_ids)
+            )
+        else:
+            statement = sq.select(self.tables["submitters"])
+
+        return Submitters.from_sql(self.engine, "submitters", statement=statement)
 
     def get_submissions(
         self,
