@@ -1,3 +1,4 @@
+import hashlib
 import uuid
 from datetime import datetime
 from typing import Dict, Iterator, List, Literal, Optional, Tuple
@@ -13,6 +14,24 @@ from adam_core.time import Timestamp
 def round_to_nearest_millisecond(t: datetime) -> datetime:
     microseconds = np.ceil(t.microsecond / 1000).astype(int) * 1000
     return t.replace(microsecond=microseconds)
+
+
+def compute_file_md5(file_path: str) -> str:
+    """
+    Compute the MD5 hash of a file.
+
+    Parameters
+    ----------
+    file_path : str
+        The path to the file to compute the MD5 hash of.
+
+    Returns
+    -------
+    str
+        The MD5 hash of the file.
+    """
+    with open(file_path, "rb") as f:
+        return hashlib.md5(f.read()).hexdigest()
 
 
 def split_into_max_size(

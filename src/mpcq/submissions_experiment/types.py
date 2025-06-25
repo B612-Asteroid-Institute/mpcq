@@ -52,7 +52,9 @@ class Submissions(qv.Table, SQLQuivrTable):
     #: Timestamp when the submission was submitted
     submitted_at = qv.TimestampColumn("ms", nullable=True, tz="utc")
     #: Path to the submission file
-    file = qv.LargeStringColumn()
+    file_path = qv.LargeStringColumn()
+    #: Hash of the submission file
+    file_md5 = qv.LargeStringColumn()
     #: Comment for the submission
     comment = qv.LargeStringColumn(nullable=True)
     #: Error message if the submission failed

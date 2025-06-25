@@ -27,6 +27,7 @@ from .types import (
 )
 from .utils import (
     candidates_to_ades,
+    compute_file_md5,
     generate_submission_id,
     round_to_nearest_millisecond,
 )
@@ -60,8 +61,8 @@ class SubmissionManager:
         self.submission_directory = os.path.join(directory, "submissions")
         self._submitter = None
         self._mpc_submission_client = None
+        self._queue = qu.Queue()
         self.setup_logging()
-        self.load_queue()
 
     @property
     def queue(self) -> qu.Queue:
@@ -350,7 +351,8 @@ class SubmissionManager:
             sq.Column("observations", sq.Integer),
             sq.Column("created_at", sq.DateTime),
             sq.Column("submitted_at", sq.DateTime, nullable=True),
-            sq.Column("file", sq.String),
+            sq.Column("file_path", sq.String),
+            sq.Column("file_md5", sq.String),
             sq.Column("comment", sq.String, nullable=True),
             sq.Column("error", sq.String, nullable=True),
         )
@@ -656,26 +658,6 @@ class SubmissionManager:
 
                 file_path = os.path.join(base_dir, f"{submission_id}.psv")
 
-                # Create a new submission
-                submission_i = Submissions.from_kwargs(
-                    id=[submission_id],
-                    mpc_submission_id=None,
-                    type=["discovery"],
-                    linkages=[len(discovery_ades_i.trkSub.unique())],
-                    observations=[len(discovery_ades_i)],
-                    created_at=[datetime.now().astimezone(timezone.utc)],
-                    submitted_at=None,
-                    file=[file_path],
-                    comment=[discovery_comment],
-                    submitter_id=[submitter_id],
-                )
-
-                submission_members_i = SubmissionMembers.from_kwargs(
-                    submission_id=pa.repeat(submission_id, len(discovery_ades_i)),
-                    trksub=discovery_ades_i.trkSub,
-                    obssubid=discovery_ades_i.obsSubID,
-                )
-
                 self.logger.info(f"Saving discovery ADES to {file_path}")
                 with open(file_path, "w") as f:
                     f.write(
@@ -686,6 +668,27 @@ class SubmissionManager:
                             seconds_precision=seconds_precision,
                         )
                     )
+
+                # Create a new submission
+                submission_i = Submissions.from_kwargs(
+                    id=[submission_id],
+                    mpc_submission_id=None,
+                    type=["discovery"],
+                    linkages=[len(discovery_ades_i.trkSub.unique())],
+                    observations=[len(discovery_ades_i)],
+                    created_at=[datetime.now().astimezone(timezone.utc)],
+                    submitted_at=None,
+                    file_path=[file_path],
+                    file_md5=[compute_file_md5(file_path)],
+                    comment=[discovery_comment],
+                    submitter_id=[submitter_id],
+                )
+
+                submission_members_i = SubmissionMembers.from_kwargs(
+                    submission_id=pa.repeat(submission_id, len(discovery_ades_i)),
+                    trksub=discovery_ades_i.trkSub,
+                    obssubid=discovery_ades_i.obsSubID,
+                )
 
                 try:
                     # Save submissions and submission members to the database
@@ -737,26 +740,6 @@ class SubmissionManager:
 
                 file_path = os.path.join(base_dir, f"{submission_id}.psv")
 
-                # Create a new submission
-                submission_i = Submissions.from_kwargs(
-                    id=[submission_id],
-                    mpc_submission_id=None,
-                    type=["association"],
-                    linkages=[len(association_ades_i.trkSub.unique())],
-                    observations=[len(association_ades_i)],
-                    created_at=[datetime.now().astimezone(timezone.utc)],
-                    submitted_at=None,
-                    file=[file_path],
-                    comment=[association_comment],
-                    submitter_id=[submitter_id],
-                )
-
-                submission_members_i = SubmissionMembers.from_kwargs(
-                    submission_id=pa.repeat(submission_id, len(association_ades_i)),
-                    trksub=association_ades_i.trkSub,
-                    obssubid=association_ades_i.obsSubID,
-                )
-
                 self.logger.info(f"Saving association ADES to {file_path}")
                 with open(file_path, "w") as f:
                     f.write(
@@ -767,6 +750,27 @@ class SubmissionManager:
                             seconds_precision=seconds_precision,
                         )
                     )
+
+                # Create a new submission
+                submission_i = Submissions.from_kwargs(
+                    id=[submission_id],
+                    mpc_submission_id=None,
+                    type=["association"],
+                    linkages=[len(association_ades_i.trkSub.unique())],
+                    observations=[len(association_ades_i)],
+                    created_at=[datetime.now().astimezone(timezone.utc)],
+                    submitted_at=None,
+                    file_path=[file_path],
+                    file_md5=[compute_file_md5(file_path)],
+                    comment=[association_comment],
+                    submitter_id=[submitter_id],
+                )
+
+                submission_members_i = SubmissionMembers.from_kwargs(
+                    submission_id=pa.repeat(submission_id, len(association_ades_i)),
+                    trksub=association_ades_i.trkSub,
+                    obssubid=association_ades_i.obsSubID,
+                )
 
                 try:
                     # Save submissions and submission members to the database
@@ -789,9 +793,9 @@ class SubmissionManager:
                     [submission_members, submission_members_i]
                 )
 
-        return submissions, submission_members
-
-    def delete_prepared_submissions(self) -> None:
+    def delete_prepared_submissions(
+        self, submission_ids: Optional[List[str]] = None
+    ) -> None:
         """
         Delete any submissions (and their files) that have not been submitted.
 
@@ -799,13 +803,24 @@ class SubmissionManager:
         -------
         None
         """
-        submissions = self.get_submissions()
+        submissions = self.get_submissions(submission_ids=submission_ids)
         submissions_to_clear = submissions.apply_mask(
             pc.is_null(submissions.submitted_at)
         )
 
+        if len(submissions_to_clear) == 0:
+            self.logger.info("No submissions to clear")
+            return
+
         for submission in submissions_to_clear:
-            submission_file = submission.file[0].as_py()
+            submission_file = submission.file_path[0].as_py()
+            submission_file_md5 = submission.file_md5[0].as_py()
+            if submission_file_md5 != compute_file_md5(submission_file):
+                self.logger.warning(
+                    f"Submission file {submission_file} has been modified since it was prepared"
+                )
+                continue
+
             if os.path.exists(submission_file):
                 os.remove(submission_file)
             self.logger.debug(f"Removed submission file {submission_file}")
@@ -868,7 +883,7 @@ class SubmissionManager:
 
         for submission in submissions:
             submission_id = submission.id[0].as_py()
-            submission_file = submission.file[0].as_py()
+            submission_file = submission.file_path[0].as_py()
 
             assert os.path.exists(
                 submission_file
@@ -912,17 +927,22 @@ class SubmissionManager:
             )
 
         submission_type = submission.type[0].as_py()
-        submission_file = submission.file[0].as_py()
+        submission_file_path = submission.file_path[0].as_py()
+        submission_file_md5 = submission.file_md5[0].as_py()
         submission_comment = submission.comment[0].as_py()
+        submitter = self.get_submitters(
+            submitter_ids=[submission.submitter_id[0].as_py()]
+        )
+        submitter_email = submitter.email[0].as_py()
 
         if submission_type == "discovery" or submission_type == "association":
 
             try:
                 mpc_submission_id, submission_time = (
                     self.mpc_submission_client.submit_ades(
-                        submission_file,
-                        self.submitter.email,
-                        submission_comment,
+                        submission_file_path,
+                        submitter_email,
+                        submission_comment + f" ({submission_file_md5})",
                     )
                 )
                 self._set_submission_success(
