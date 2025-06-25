@@ -833,22 +833,39 @@ class SubmissionManager:
 
     def queue_for_submission(
         self,
-        submissions: Submissions,
-    ) -> Tuple[Submissions, SubmissionMembers]:
+        submission_ids: List[str],
+    ):
         """
         Queue the given submissions for submission to the MPC. This function will populate
         the queue with the submission ID and the submission file path.
 
         Parameters
         ----------
-        submissions : Submissions
-            The submissions to queue for submission to the MPC.
+        submission_ids : List[str]
+            The IDs of the submissions to queue for submission.
 
         Returns
         -------
-        submissions : Submissions
-            The submissions.
+        None
+
+        Raises
+        ------
+        ValueError
+            If no submissions are found for the given IDs.
+            If any of the submissions have already been submitted.
         """
+        submissions = self.get_submissions(submission_ids=submission_ids)
+        if len(submissions) == 0:
+            raise ValueError(f"No submissions found for IDs: {submission_ids}")
+
+        already_submitted = submissions.apply_mask(
+            pc.invert(pc.is_null(submissions.submitted_at))
+        )
+        if len(already_submitted) > 0:
+            raise ValueError(
+                f"Submissions {already_submitted.submission_id.as_pylist()} have already been submitted."
+            )
+
         for submission in submissions:
             submission_id = submission.id[0].as_py()
             submission_file = submission.file[0].as_py()
