@@ -961,6 +961,23 @@ class SubmissionManager:
 
         self.logger.info(f"Submission '{submission_id}' submitted successfully")
 
+    def submit_queue(self, delay: Optional[timedelta] = timedelta(seconds=10)) -> None:
+        """
+        Submit the queue of submissions to the MPC.
+
+        Parameters
+        ----------
+        delay : Optional[timedelta], optional
+            The delay between submissions, by default 10 seconds.
+
+        Returns
+        -------
+        None
+        """
+        while not self._queue.empty():
+            self.submit_from_queue()
+            time.sleep(delay.total_seconds())
+
     def _set_submission_success(
         self,
         submission_id: str,
@@ -1024,4 +1041,3 @@ class SubmissionManager:
             self.logger.error(f"Submission '{submission_id}' failed to submit: {error}")
 
         return
-
