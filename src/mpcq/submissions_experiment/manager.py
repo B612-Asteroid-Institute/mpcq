@@ -2,6 +2,7 @@ import logging
 import os
 import queue as qu
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
@@ -693,9 +694,9 @@ class SubmissionManager:
                 try:
                     # Save submissions and submission members to the database
                     submission_members_i.to_sql(
-                        self.engine, "submission_members", if_exists="append"
+                        self.engine, "submission_members", if_exists="fail"
                     )
-                    submission_i.to_sql(self.engine, "submissions", if_exists="append")
+                    submission_i.to_sql(self.engine, "submissions", if_exists="fail")
                     self.logger.debug(
                         f"Saved discovery submission {submission_id} to database"
                     )
@@ -775,9 +776,9 @@ class SubmissionManager:
                 try:
                     # Save submissions and submission members to the database
                     submission_members_i.to_sql(
-                        self.engine, "submission_members", if_exists="append"
+                        self.engine, "submission_members", if_exists="fail"
                     )
-                    submission_i.to_sql(self.engine, "submissions", if_exists="append")
+                    submission_i.to_sql(self.engine, "submissions", if_exists="fail")
                     self.logger.debug(
                         f"Saved association submission {submission_id} to database"
                     )
