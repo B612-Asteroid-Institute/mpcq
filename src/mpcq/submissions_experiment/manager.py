@@ -1009,7 +1009,11 @@ class SubmissionManager:
             stmt = (
                 sq.update(self.tables["submissions"])
                 .where(self.tables["submissions"].c.id == submission_id)
-                .values(submitted_at=submitted_at, mpc_submission_id=mpc_submission_id)
+                .values(
+                    submitted_at=submitted_at,
+                    mpc_submission_id=mpc_submission_id,
+                    error=None,
+                )
             )
 
             conn.execute(stmt)
