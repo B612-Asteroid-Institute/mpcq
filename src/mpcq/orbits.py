@@ -29,6 +29,7 @@ class MPCOrbits(qv.Table):
     a3 = qv.Float64Column(nullable=True)
     h = qv.Float64Column(nullable=True)
     g = qv.Float64Column(nullable=True)
+    orbit_type = qv.Int16Column(nullable=True)
     created_at = Timestamp.as_column(nullable=True)
     updated_at = Timestamp.as_column(nullable=True)
 

@@ -169,6 +169,7 @@ class BigQueryMPCClient(MPCClient):
             mpc_orbits.a3,
             mpc_orbits.h,
             mpc_orbits.g,
+            mpc_orbits.orbit_type_int,
             mpc_orbits.created_at,
             mpc_orbits.updated_at
         FROM `{self.dataset_id}.public_mpc_orbits` AS mpc_orbits
@@ -219,6 +220,7 @@ class BigQueryMPCClient(MPCClient):
             a3=table["a3"],
             h=table["h"],
             g=table["g"],
+            orbit_type=table["orbit_type_int"],
             created_at=Timestamp.from_astropy(created_at),
             updated_at=Timestamp.from_astropy(updated_at),
         )
@@ -271,6 +273,7 @@ class BigQueryMPCClient(MPCClient):
             mpc_orbits.a3,
             mpc_orbits.h,
             mpc_orbits.g,
+            mpc_orbits.orbit_type_int,
             mpc_orbits.created_at,
             mpc_orbits.updated_at
         FROM requested_provids AS rp
@@ -330,6 +333,7 @@ class BigQueryMPCClient(MPCClient):
             a3=table["a3"],
             h=table["h"],
             g=table["g"],
+            orbit_type=table["orbit_type_int"],
             created_at=Timestamp.from_astropy(created_at),
             updated_at=Timestamp.from_astropy(updated_at),
         )

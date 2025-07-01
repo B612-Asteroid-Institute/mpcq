@@ -240,6 +240,7 @@ class PostgresMPCClient(MPCClient):
             mpc_orbits.a3,
             mpc_orbits.h,
             mpc_orbits.g,
+            mpc_orbits.orbit_type_int,
             mpc_orbits.created_at,
             mpc_orbits.updated_at
         FROM requested_provids AS rp
@@ -303,6 +304,7 @@ class PostgresMPCClient(MPCClient):
             a3=pc.cast(table.column("a3"), pa.float64()),
             h=pc.cast(table.column("h"), pa.float64()),
             g=pc.cast(table.column("g"), pa.float64()),
+            orbit_type=pc.cast(table.column("orbit_type_int"), pa.int16()),
             created_at=Timestamp.from_astropy(created_at),
             updated_at=Timestamp.from_astropy(updated_at),
         )
