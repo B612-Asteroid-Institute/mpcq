@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 
 import requests
+import logging
 
 from .wamo import WAMOResults
 
@@ -23,6 +24,9 @@ class MPCSubmissionClient(ABC):
 
 
 class MPCSubmissionOfficialClient(MPCSubmissionClient):
+
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
 
     def submit_ades(
         self,
@@ -75,6 +79,7 @@ class MPCSubmissionOfficialClient(MPCSubmissionClient):
 
         submission_time = datetime.now().astimezone(timezone.utc)
         response = requests.post(url, files=files)
+        self.logger.info(f"Submission response: {response.text}")
 
         if response.status_code == 200:
             idx = response.text.find("Submission ID is")
