@@ -129,8 +129,10 @@ class SQLQuivrTable:
                 data_dict = {col.name: [] for col in table.columns}
 
                 for row in chunk:
-                    for col_name, value in row._mapping.items():
-                        data_dict[col_name].append(value)
+                    # Ensure every column is filled, even if None
+                    for col in table.columns:
+                        value = row._mapping.get(col.name, None)
+                        data_dict[col.name].append(value)
 
                 qtable_i = qtable.from_pyarrow(pa.Table.from_pydict(data_dict))
                 qtable = qv.concatenate([qtable, qtable_i])

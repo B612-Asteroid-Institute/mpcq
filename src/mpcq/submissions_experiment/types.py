@@ -19,10 +19,6 @@ class DiscoveryCandidateMembers(qv.Table):
 
 
 class AssociationCandidates(qv.Table):
-    #: MPC-style permanent ID
-    permid = qv.LargeStringColumn()
-    #: MPC-style provisional ID
-    provid = qv.LargeStringColumn(nullable=True)
     #: Candidate ID
     trksub = qv.LargeStringColumn()
 
@@ -64,6 +60,10 @@ class Submissions(qv.Table, SQLQuivrTable):
 class SubmissionMembers(qv.Table, SQLQuivrTable):
     #: Submission ID
     submission_id = qv.LargeStringColumn()
+    #: Observer-assigned permanent ID 
+    permid = qv.LargeStringColumn(nullable=True)
+    #: Observer-assigned provisional ID
+    provid = qv.LargeStringColumn(nullable=True)
     #: trskub of the observation
     trksub = qv.LargeStringColumn()
     #: Observation ID
@@ -72,7 +72,7 @@ class SubmissionMembers(qv.Table, SQLQuivrTable):
     mpc_obsid = qv.LargeStringColumn(nullable=True)
     #: MPC status of the observation
     mpc_status = qv.LargeStringColumn(nullable=True)
-    #: MPC-assigned association ID
+    #: MPC-assigned permanent ID
     mpc_permid = qv.LargeStringColumn(nullable=True)
     #: MPC-assigned provisional ID
     mpc_provid = qv.LargeStringColumn(nullable=True)

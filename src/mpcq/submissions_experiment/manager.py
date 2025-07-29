@@ -362,6 +362,8 @@ class SubmissionManager:
             "submission_members",
             metadata,
             sq.Column("submission_id", sq.String),
+            sq.Column("permid", sq.String, nullable=True),
+            sq.Column("provid", sq.String, nullable=True),
             sq.Column("trksub", sq.String),
             sq.Column("obssubid", sq.String, primary_key=True),
             sq.Column("mpc_obsid", sq.String, nullable=True),
@@ -724,6 +726,14 @@ class SubmissionManager:
                     max_observations_per_table=max_observations_per_file,
                 )
 
+            # Assert that provid or permid are not None for any row
+            if pc.any(
+                pc.and_(pc.is_null(association_ades.provID), pc.is_null(association_ades.permID))
+            ).as_py():
+                raise ValueError(
+                    "Both permID and provID cannot be null for an association submission"
+                )
+
             self.logger.info(
                 f"Processing {len(association_ades)} association ADES files for submission {submission_id_prefix}"
             )
@@ -769,6 +779,8 @@ class SubmissionManager:
 
                 submission_members_i = SubmissionMembers.from_kwargs(
                     submission_id=pa.repeat(submission_id, len(association_ades_i)),
+                    permid=association_ades_i.permID,
+                    provid=association_ades_i.provID,
                     trksub=association_ades_i.trkSub,
                     obssubid=association_ades_i.obsSubID,
                 )
