@@ -3,6 +3,7 @@ import os
 import queue as qu
 import sys
 import time
+from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
@@ -415,6 +416,44 @@ class SubmissionManager:
 
         return cls(engine, metadata, os.path.abspath(directory))
 
+    def add_submitter(self, submitter: Submitter) -> None:
+        """
+        Add a submitter to the SubmissionManager tracking database.
+        """
+
+        # Get current submitters
+        submitters = self.get_submitters()
+
+        submitters_filtered = submitters.apply_mask(
+            pc.and_(
+                pc.equal(submitters.email, submitter.email),
+                pc.and_(
+                    pc.equal(submitters.first_name, submitter.first_name),
+                    pc.equal(submitters.last_name, submitter.last_name),
+                ),
+            )
+        )
+        if len(submitters_filtered) > 0:
+            self.logger.info(
+                f"Submitter {submitter.first_name} {submitter.last_name} already exists in database as {submitters_filtered.id.unique()[0]}."
+            )
+            return
+
+        # Add new submitter
+        submitter_table = Submitters.from_kwargs(
+            id=[pc.max(submitters.id).as_py() + 1 if len(submitters) > 0 else 1],
+            first_name=[submitter.first_name],
+            last_name=[submitter.last_name],
+            email=[submitter.email],
+            institution=[submitter.institution],
+            created_at=[datetime.now().astimezone(timezone.utc)],
+        )
+
+        submitter_table.to_sql(self.engine, "submitters", if_exists="append")
+        self.logger.info(
+            f"Submitter {submitter.first_name} {submitter.last_name} added to database."
+        )
+
     def get_submitters(self, submitter_ids: Optional[List[int]] = None) -> Submitters:
         """
         Get the submitters from the SubmissionManager tracking database.
@@ -728,7 +767,10 @@ class SubmissionManager:
 
             # Assert that provid or permid are not None for any row
             if pc.any(
-                pc.and_(pc.is_null(association_ades.provID), pc.is_null(association_ades.permID))
+                pc.and_(
+                    pc.is_null(association_ades.provID),
+                    pc.is_null(association_ades.permID),
+                )
             ).as_py():
                 raise ValueError(
                     "Both permID and provID cannot be null for an association submission"
