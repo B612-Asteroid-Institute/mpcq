@@ -1,8 +1,8 @@
 import logging
-import os
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
+from urllib.parse import urljoin
 
 import requests
 
@@ -186,7 +186,7 @@ class MPCSandboxSubmissionClient(MPCSubmissionClient):
         }
         submission_time = datetime.now(timezone.utc)
         response = requests.post(
-            os.path.join(self.submission_url, "psv/"),
+            urljoin(self.submission_url, "psv/"),
             files=files,
         )
         self.logger.info(f"Submission response: {response.text}")
