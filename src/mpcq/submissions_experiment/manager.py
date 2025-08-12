@@ -549,7 +549,7 @@ class SubmissionManager:
         discovery_candidates: Optional[DiscoveryCandidates] = None,
         discovery_candidate_members: Optional[DiscoveryCandidateMembers] = None,
         association_candidates: Optional[AssociationCandidates] = None,
-        association_members: Optional[AssociationMembers] = None,
+        association_candidate_members: Optional[AssociationMembers] = None,
         max_observations_per_file: Optional[int] = 50000,
         discovery_comment: Optional[str] = None,
         association_comment: Optional[str] = None,
@@ -574,7 +574,7 @@ class SubmissionManager:
             The observation members of the discovery candidates.
         association_candidates : Optional[AssociationCandidates], optional
             The association candidates. These are objects believed to be associated with a known object.
-        association_members : Optional[AssociationMembers], optional
+        association_candidate_members : Optional[AssociationMembers], optional
             The observation members of the association candidates.
         max_observations_per_file : Optional[int], optional
             The maximum number of observations per file, by default 100000.
@@ -629,30 +629,34 @@ class SubmissionManager:
                 )
 
         if association_candidates is not None:
-            if association_members is None:
+            if association_candidate_members is None:
                 raise ValueError(
-                    "association_members must be provided if association_candidates is provided."
+                    "association_candidate_members must be provided if association_candidates is provided."
                 )
 
             if not pc.all(
-                pc.is_in(association_candidates.trksub, association_members.trksub)
+                pc.is_in(
+                    association_candidates.trksub, association_candidate_members.trksub
+                )
             ).as_py():
                 raise ValueError(
-                    "All trksubs in association_candidates must be present in association_members."
+                    "All trksubs in association_candidates must be present in association_candidate_members."
                 )
 
             if not pc.all(
-                pc.is_in(association_members.trksub, association_candidates.trksub)
+                pc.is_in(
+                    association_candidate_members.trksub, association_candidates.trksub
+                )
             ).as_py():
                 raise ValueError(
-                    "All trksubs in association_members must be present in association_candidates."
+                    "All trksubs in association_candidate_members must be present in association_candidates."
                 )
 
             if not pc.all(
-                pc.is_in(association_members.obssubid, source_catalog.id)
+                pc.is_in(association_candidate_members.obssubid, source_catalog.id)
             ).as_py():
                 raise ValueError(
-                    "All obssubids in association_members must be present in source_catalog."
+                    "All obssubids in association_candidate_members must be present in source_catalog."
                 )
 
         if self._submitter is None:
@@ -760,21 +764,21 @@ class SubmissionManager:
             else:
                 association_ades = candidates_to_ades(
                     association_candidates,
-                    association_members,
+                    association_candidate_members,
                     source_catalog,
                     max_observations_per_table=max_observations_per_file,
                 )
 
-            # Assert that provid or permid are not None for any row
-            if pc.any(
-                pc.and_(
-                    pc.is_null(association_ades.provID),
-                    pc.is_null(association_ades.permID),
-                )
-            ).as_py():
-                raise ValueError(
-                    "Both permID and provID cannot be null for an association submission"
-                )
+            # # Assert that provid or permid are not None for any row
+            # if pc.any(
+            #     pc.and_(
+            #         pc.is_null(association_ades.provID),
+            #         pc.is_null(association_ades.permID),
+            #     )
+            # ).as_py():
+            #     raise ValueError(
+            #         "Both permID and provID cannot be null for an association submission"
+            #     )
 
             self.logger.info(
                 f"Processing {len(association_ades)} association ADES files for submission {submission_id_prefix}"

@@ -130,15 +130,26 @@ def candidates_to_ades(
         pc.is_in(members.trksub, candidates.trksub)
     ).as_py(), "All trksubs in members must be present in candidates."
 
-    members_table = members.flattened_table().select(["trksub", "obssubid"])
+    column_selection = ["trksub", "obssubid"]
+    members_table = members.flattened_table().select(column_selection)
+    # TODO: THE FOLLOWING JOIN ASSUMES WE WILL NEVER SUBMIT A CANDIDATE ASSOCIATION WITH MULTIPLE DIFFERENT IDS
+    members_table = members_table.join(candidates.flattened_table(), "trksub", "trksub")
     members_observations = members_table.join(
         source_catalog.flattened_table(), "obssubid", "id"
     )
     members_observations = members_observations.combine_chunks()
 
     ades = ADESObservations.from_kwargs(
-        # permID=,
-        # provID=,
+        permID=(
+            members_observations.column("permid")
+            if "permid" in members_observations.column_names
+            else None
+        ),
+        provID=(
+            members_observations.column("provid")
+            if "provid" in members_observations.column_names
+            else None
+        ),
         trkSub=members_observations.column("trksub"),
         obsSubID=members_observations.column("obssubid"),
         obsTime=Timestamp.from_kwargs(

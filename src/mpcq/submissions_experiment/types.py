@@ -21,6 +21,10 @@ class DiscoveryCandidateMembers(qv.Table):
 class AssociationCandidates(qv.Table):
     #: Candidate ID
     trksub = qv.LargeStringColumn()
+    #: Observer-assigned permanent ID
+    permid = qv.LargeStringColumn(nullable=True)
+    #: Observer-assigned provisional ID
+    provid = qv.LargeStringColumn()
 
 
 class AssociationMembers(qv.Table):
@@ -60,7 +64,7 @@ class Submissions(qv.Table, SQLQuivrTable):
 class SubmissionMembers(qv.Table, SQLQuivrTable):
     #: Submission ID
     submission_id = qv.LargeStringColumn()
-    #: Observer-assigned permanent ID 
+    #: Observer-assigned permanent ID
     permid = qv.LargeStringColumn(nullable=True)
     #: Observer-assigned provisional ID
     provid = qv.LargeStringColumn(nullable=True)
