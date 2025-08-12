@@ -47,6 +47,10 @@ class Submissions(qv.Table, SQLQuivrTable):
     linkages = qv.Int64Column()
     #: Number of observations in the submission
     observations = qv.Int64Column()
+    #: First observation time (MJD UTC)
+    first_observation_mjd_utc = qv.Float64Column(nullable=True)
+    #: Last observation time (MJD UTC)
+    last_observation_mjd_utc = qv.Float64Column(nullable=True)
     #: Timestamp when the submission was created
     created_at = qv.TimestampColumn("ms", tz="utc")
     #: Timestamp when the submission was submitted

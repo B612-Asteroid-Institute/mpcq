@@ -351,6 +351,8 @@ class SubmissionManager:
             sq.Column("type", sq.String),
             sq.Column("linkages", sq.Integer),
             sq.Column("observations", sq.Integer),
+            sq.Column("first_observation_mjd_utc", sq.Float),
+            sq.Column("last_observation_mjd_utc", sq.Float),
             sq.Column("created_at", sq.DateTime),
             sq.Column("submitted_at", sq.DateTime, nullable=True),
             sq.Column("file_path", sq.String),
@@ -722,6 +724,12 @@ class SubmissionManager:
                     type=["discovery"],
                     linkages=[len(discovery_ades_i.trkSub.unique())],
                     observations=[len(discovery_ades_i)],
+                    first_observation_mjd_utc=discovery_ades_i.obsTime.min()
+                    .rescale("utc")
+                    .mjd(),
+                    last_observation_mjd_utc=discovery_ades_i.obsTime.max()
+                    .rescale("utc")
+                    .mjd(),
                     created_at=[datetime.now().astimezone(timezone.utc)],
                     submitted_at=None,
                     file_path=[file_path],
@@ -815,6 +823,12 @@ class SubmissionManager:
                     type=["association"],
                     linkages=[len(association_ades_i.trkSub.unique())],
                     observations=[len(association_ades_i)],
+                    first_observation_mjd_utc=association_ades_i.obsTime.min()
+                    .rescale("utc")
+                    .mjd(),
+                    last_observation_mjd_utc=association_ades_i.obsTime.max()
+                    .rescale("utc")
+                    .mjd(),
                     created_at=[datetime.now().astimezone(timezone.utc)],
                     submitted_at=None,
                     file_path=[file_path],
