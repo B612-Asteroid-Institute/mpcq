@@ -59,6 +59,10 @@ def split_into_max_size(
         table.flattened_table().group_by(column).aggregate([(column, "count")])
     )
 
+    # Sort by the column value to ensure deterministic ordering (alternatively
+    # we could also try turning off multi-threading in the group_by with use_threads=False)
+    grouped_table = grouped_table.sort_by([(column, "ascending")])
+
     cumulative_count = pc.cumulative_sum(grouped_table[f"{column}_count"])
     chunk = pc.divide(cumulative_count, max_size)
     grouped_table = grouped_table.append_column("chunk", chunk)
