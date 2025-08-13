@@ -1,3 +1,5 @@
+import warnings
+
 import pyarrow as pa
 import quivr as qv
 
@@ -8,6 +10,7 @@ class WAMOResults(qv.Table):
     submission_id = qv.LargeStringColumn(nullable=True)
     submission_block_id = qv.LargeStringColumn(nullable=True)
     obsid = qv.LargeStringColumn(nullable=True)
+    obssubid = qv.LargeStringColumn(nullable=True)
     status = qv.LargeStringColumn(nullable=True)
     ref = qv.LargeStringColumn(nullable=True)
     iau_desig = qv.LargeStringColumn(nullable=True)
@@ -47,9 +50,14 @@ class WAMOResults(qv.Table):
                 iau_desig = []
                 input_type = []
                 obs80 = []
+                obssubid = []
                 status_decoded = []
 
                 for result_i in result_list:
+
+                    if result_i == "Note":
+                        warnings.warn(f"Note found in WAMO response: {result_i}")
+                        continue
 
                     submission_id.append(result_i["submission_id"])
                     submission_block_id.append(result_i["submission_block_id"])
@@ -59,6 +67,7 @@ class WAMOResults(qv.Table):
                     iau_desig.append(result_i["iau_desig"])
                     input_type.append(result_i["input_type"])
                     obs80.append(result_i["obs80"])
+                    obssubid.append(result_i["obssubid"])
                     status_decoded.append(result_i["status_decoded"])
 
                 wamo_results = qv.concatenate(
@@ -71,6 +80,7 @@ class WAMOResults(qv.Table):
                             submission_id=submission_id,
                             submission_block_id=submission_block_id,
                             obsid=obsid,
+                            obssubid=obssubid,
                             status=status,
                             ref=ref,
                             iau_desig=iau_desig,
