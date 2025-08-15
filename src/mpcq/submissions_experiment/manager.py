@@ -129,7 +129,7 @@ class SubmissionManager:
         self._mpc_submission_client = None
         self.logger.info("MPC submission client deleted.")
 
-    def select_submitter(self) -> None:
+    def select_submitter(self, submitter_id: Optional[int] = None) -> None:
         """
         Select the submitter details.
         """
@@ -147,7 +147,7 @@ class SubmissionManager:
                 )
             print("\n0. Add new submitter")
 
-            while True:
+            while True or submitter_id is not None:
                 try:
                     choice = int(
                         input(
@@ -249,7 +249,7 @@ class SubmissionManager:
         # Filter for those that are unsubmitted
         submissions = submissions.apply_mask(pc.is_null(submissions.mpc_submission_id))
         self.logger.info(f"Found {len(submissions)} unsubmitted submissions to queue")
-        self.queue_for_submission(submissions)
+        self.queue_for_submission(submissions.id.unique().tolist())
 
     def clear_queue(self) -> None:
         """
@@ -519,7 +519,8 @@ class SubmissionManager:
         return Submissions.from_sql(self.engine, "submissions", statement=statement)
 
     def get_submission_members(
-        self, submission_ids: List[str] = None
+        self,
+        submission_ids: List[str] = None,
     ) -> SubmissionMembers:
         """
         Get the members of a submission from the SubmissionManager tracking database.
@@ -543,6 +544,136 @@ class SubmissionManager:
         return SubmissionMembers.from_sql(
             self.engine, "submission_members", statement=statement
         )
+
+    def query_submission_status(self, submission_ids: List[str]) -> SubmissionMembers:
+        """
+        Query for the status of the given submission IDs. First, WAMO is queried for the
+        for the status of all observations in the submission. Then, the MPC Client is queried
+        for the attribution (permid and provid) of the observations that have been accepted and published.
+
+        The tracking database is updated with the new statuses and attributions.
+
+        Parameters
+        ----------
+        submission_ids : List[str]
+            The IDs of the submissions to query for.
+
+        Returns
+        -------
+        SubmissionMembers
+            The updated submission members table.
+        """
+        # Get the submission members table and join the WAMO results to it using
+        # our observation IDs.
+        submission_members_table = self.get_submission_members(
+            submission_ids=submission_ids
+        )
+
+        submission_members_updated = SubmissionMembers.empty()
+
+        for submission_id in submission_ids:
+
+            self.logger.info(f"Querying submission status for '{submission_id}'...")
+
+            # Get submission
+            submission_i = self.get_submissions(submission_ids=[submission_id])
+
+            # Get submission members for each submission
+            submission_members_i = self.get_submission_members(
+                submission_ids=[submission_id]
+            )
+
+            if len(submission_i) == 0:
+                raise ValueError(
+                    f"Submission '{submission_id}' not found in tracking database."
+                )
+
+            mpc_submission_id = submission_i.mpc_submission_id[0].as_py()
+            if mpc_submission_id is None:
+                raise ValueError(
+                    f"Submission '{submission_id}' does not have an MPC submission ID."
+                )
+
+            self.logger.info(
+                f"Submission '{submission_id}' (MPC submission ID: {mpc_submission_id}) has {len(submission_members_i)} members."
+            )
+
+            # Query WAMO for the submission results
+            self.logger.info(f"Querying WAMO for submission {mpc_submission_id}...")
+            wamo_results_i = self.mpc_submission_client.query_wamo([mpc_submission_id])
+            if pc.all(pc.invert(pc.is_null(wamo_results_i.error))).as_py():
+                raise ValueError(
+                    f"Error querying WAMO for submission '{submission_id}': {wamo_results_i.error[0].as_py()}"
+                )
+
+            wamo_results_i = wamo_results_i.flattened_table().rename_columns(
+                [f"wamo_{col}" for col in wamo_results_i.table.column_names]
+            )
+            self.logger.info(
+                f"WAMO results has {len(wamo_results_i)} results for submission '{submission_id}'."
+            )
+
+            # Get the submission members table and join the WAMO results to it using
+            # our observation IDs.
+            submission_members_table_i = submission_members_i.flattened_table()
+            submission_members_table_i = submission_members_table_i.join(
+                wamo_results_i, "obssubid", "wamo_obssubid"
+            )
+
+            # Query the MPC Client for the observations in the obs table so we can get their permids and provids
+            # WAMO simply returns iau_desig which can be either a permid or provid. It is useful to have both if
+            # they exist.
+            self.logger.info(
+                f"Querying MPC Client for submission {mpc_submission_id}..."
+            )
+            submission_results_i = self.client.query_submission_results(
+                [mpc_submission_id]
+            )
+            self.logger.info(
+                f"MPC Client results has {len(submission_results_i)} results for submission '{submission_id}'."
+            )
+
+            # Rename the columns to include the mpcq prefix andthen join the results to the submission members
+            # using the MPC-assigned observation ID.
+            submission_results_table_i = (
+                submission_results_i.flattened_table().rename_columns(
+                    [f"mpcq_{col}" for col in submission_results_i.table.column_names]
+                )
+            )
+            submission_members_table_i = submission_members_table_i.join(
+                submission_results_table_i, "wamo_obsid", "mpcq_obsid"
+            )
+
+            submission_members_updated_i = SubmissionMembers.from_kwargs(
+                submission_id=submission_members_table_i.column("submission_id"),
+                trksub=submission_members_table_i.column("trksub"),
+                permid=submission_members_table_i.column("permid"),
+                provid=submission_members_table_i.column("provid"),
+                obssubid=submission_members_table_i.column("obssubid"),
+                mpc_obsid=submission_members_table_i.column("wamo_obsid"),
+                mpc_status=submission_members_table_i.column("wamo_status"),
+                mpc_permid=submission_members_table_i.column("mpcq_permid"),
+                mpc_provid=submission_members_table_i.column("mpcq_provid"),
+                updated_at=pa.array(
+                    [datetime.now().astimezone(timezone.utc)]
+                    * len(submission_members_table_i),
+                    pa.timestamp("ms"),
+                ),
+            )
+
+            # Update the table in the database
+            submission_members_updated_i.to_sql(
+                self.engine, "submission_members", if_exists="update"
+            )
+            self.logger.info(
+                f"Updated {len(submission_members_updated_i)} members for submission '{submission_id}' in the database."
+            )
+
+            submission_members_updated = qv.concatenate(
+                [submission_members_updated, submission_members_updated_i]
+            )
+
+        return submission_members_updated
 
     def prepare_submissions(
         self,
@@ -987,8 +1118,8 @@ class SubmissionManager:
         submission = self.get_submissions(submission_ids=[submission_id])
         submission_members = self.get_submission_members(submission_ids=[submission_id])
         if len(submission) == 0:
-            self.logger.error(f"Submission {submission_id} not found in the database")
-            raise ValueError(f"Submission {submission_id} not found in the database")
+            self.logger.error(f"Submission '{submission_id}' not found in the database")
+            raise ValueError(f"Submission '{submission_id}' not found in the database")
 
         if len(submission_members) == 0:
             self.logger.error(
