@@ -13,7 +13,7 @@ class SQLQuivrTable:
         engine: sq.engine.Engine,
         table: Union[str, sq.Table],
         chunk_size: int = 10000,
-        if_exists: Literal["fail", "replace", "append"] = "fail",
+        if_exists: Literal["fail", "replace", "update"] = "fail",
     ) -> None:
         """
         Save the pyarrow table to an existing SQL table. If the table does not exist, it will be created.
@@ -26,11 +26,11 @@ class SQLQuivrTable:
             Either a SQLAlchemy Table object or a string of the table name.
         chunk_size : int
             Number of rows to insert at a time.
-        if_exists : Literal["fail", "replace", "append"]
+        if_exists : Literal["fail", "replace", "update"]
             What to do if the table already exists.
                 "fail": Raise a ValueError.
                 "replace": Drop the table before inserting.
-                "append": Insert or upsert rows to the existing table
+                "update": Insert or upsert rows to the existing table
                     (if the table has a primary key).
 
         Returns
@@ -65,7 +65,7 @@ class SQLQuivrTable:
                 ]
 
                 stmt = sqlite_insert(table)
-                if if_exists == "append":
+                if if_exists == "update":
                     stmt = stmt.on_conflict_do_update(
                         index_elements=primary_keys,
                         set_={
