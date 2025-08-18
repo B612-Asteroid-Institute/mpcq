@@ -1254,3 +1254,39 @@ class SubmissionManager:
             self.logger.error(f"Submission '{submission_id}' failed to submit: {error}")
 
         return
+
+    def __update_mpc_submission_id(
+        self, submission_id: str, mpc_submission_id: str
+    ) -> str:
+        """
+        Update the MPC submission ID for an already submitted submission. This is intended for us in
+        cases where the MPC might resubmit observations internally.
+
+        Parameters
+        ----------
+        submission_id : str
+            The submission ID
+        mpc_submission_id : str
+            The new MPC submission ID.
+        """
+        submission = self.get_submissions(submission_ids=[submission_id])
+        if len(submission) == 0:
+            raise ValueError(f"Submission '{submission_id}' not found")
+
+        current_mpc_submission_id = submission.mpc_submission_id[0].as_py()
+
+        with self.engine.begin() as conn:
+            stmt = (
+                sq.update(self.tables["submissions"])
+                .where(self.tables["submissions"].c.id == submission_id)
+                .values(
+                    mpc_submission_id=mpc_submission_id,
+                )
+            )
+            conn.execute(stmt)
+
+        self.logger.info(
+            f"Updated MPC submission ID for submission '{submission_id}' ('{current_mpc_submission_id}' to '{mpc_submission_id}')"
+        )
+
+        return
