@@ -119,7 +119,7 @@ class SubmissionManager:
         Set the MPC submission client.
         """
         self._mpc_submission_client = value
-        self.logger.info(f"MPC submission client set to {value.__class__.__name__}.")
+        self.logger.info(f"MPC submission client set to {value.__class__.__name__}")
 
     @mpc_submission_client.deleter
     def mpc_submission_client(self) -> None:
@@ -127,7 +127,30 @@ class SubmissionManager:
         Delete the MPC submission client.
         """
         self._mpc_submission_client = None
-        self.logger.info("MPC submission client deleted.")
+        self.logger.info("MPC submission client deleted")
+
+    @property
+    def mpc_sbn_client(self) -> MPCClient:
+        """
+        The MPC SBN client.
+        """
+        return self._mpc_sbn_client
+
+    @mpc_sbn_client.setter
+    def mpc_sbn_client(self, value: MPCClient) -> None:
+        """
+        Set the MPC SBN client.
+        """
+        self._mpc_sbn_client = value
+        self.logger.info(f"MPC SBN client set to {value.__class__.__name__}")
+
+    @mpc_sbn_client.deleter
+    def mpc_sbn_client(self) -> None:
+        """
+        Delete the MPC SBN client.
+        """
+        self._mpc_sbn_client = None
+        self.logger.info("MPC SBN client deleted")
 
     def select_submitter(self, submitter_id: Optional[int] = None) -> None:
         """
@@ -298,24 +321,6 @@ class SubmissionManager:
         self.logger = logger
 
         return
-
-    def connect_client(self, client: Optional[MPCClient] = None) -> None:
-        """
-        Connect the SubmissionManager to an MPCClient.
-
-        Parameters
-        ----------
-        client : MPCClient, optional
-            The client to connect to. If None, a BigQueryMPCClient will be used.
-
-        Returns
-        -------
-        None
-        """
-        if client is None:
-            client = BigQueryMPCClient()
-
-        self.client = client
 
     @classmethod
     def create(cls, directory: str) -> "SubmissionManager":
