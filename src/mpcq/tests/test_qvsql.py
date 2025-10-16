@@ -114,7 +114,7 @@ def test_to_sql_upsert(engine: sq.engine.Engine) -> None:
         c=["c", "d", "e"],
         d=[False, False, None],
     )
-    table2.to_sql(engine, "test_table", if_exists="append")
+    table2.to_sql(engine, "test_table", if_exists="update")
 
     expected_table = qv.concatenate([table[:2], table2])
     loaded_table = SQLTable.from_sql(engine, "test_table")

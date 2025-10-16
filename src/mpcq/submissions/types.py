@@ -28,7 +28,7 @@ class AssociationCandidates(qv.Table):
     provid = qv.LargeStringColumn()
 
 
-class AssociationMembers(qv.Table):
+class AssociationCandidateMembers(qv.Table):
     #: Candidate ID
     trksub = qv.LargeStringColumn()
     #: Observation ID

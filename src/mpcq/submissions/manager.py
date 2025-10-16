@@ -17,8 +17,8 @@ from tqdm import tqdm
 from ..client import MPCClient
 from .mpc import MPCSubmissionClient
 from .types import (
+    AssociationCandidateMembers,
     AssociationCandidates,
-    AssociationMembers,
     DiscoveryCandidateMembers,
     DiscoveryCandidates,
     SubmissionMembers,
@@ -271,7 +271,8 @@ class SubmissionManager:
         # Filter for those that are unsubmitted
         submissions = submissions.apply_mask(pc.is_null(submissions.mpc_submission_id))
         self.logger.info(f"Found {len(submissions)} unsubmitted submissions to queue")
-        self.queue_for_submission(submissions.id.unique().tolist())
+        if len(submissions) > 0:
+            self.queue_for_submission(submissions.id.unique().tolist())
 
     def clear_queue(self) -> None:
         """
@@ -646,12 +647,11 @@ class SubmissionManager:
                 f"MPC Client results has {len(submission_results_i)} results for submission '{submission_id}'"
             )
 
-            # Rename the columns to include the mpcq prefix andthen join the results to the submission members
+            # Rename the columns to include the mpcq prefix and then join the results to the submission members
             # using the MPC-assigned observation ID.
-            submission_results_table_i = (
-                submission_results_i.flattened_table().rename_columns(
-                    [f"mpcq_{col}" for col in submission_results_i.table.column_names]
-                )
+            flattened_table_i = submission_results_i.flattened_table()
+            submission_results_table_i = flattened_table_i.rename_columns(
+                [f"mpcq_{col}" for col in flattened_table_i.column_names]
             )
             submission_members_table_i = submission_members_table_i.join(
                 submission_results_table_i, "wamo_obsid", "mpcq_obsid"
@@ -695,7 +695,7 @@ class SubmissionManager:
         discovery_candidates: Optional[DiscoveryCandidates] = None,
         discovery_candidate_members: Optional[DiscoveryCandidateMembers] = None,
         association_candidates: Optional[AssociationCandidates] = None,
-        association_candidate_members: Optional[AssociationMembers] = None,
+        association_candidate_members: Optional[AssociationCandidateMembers] = None,
         max_observations_per_file: Optional[int] = 50000,
         discovery_comment: Optional[str] = None,
         association_comment: Optional[str] = None,
@@ -749,30 +749,32 @@ class SubmissionManager:
                     "discovery_candidate_members must be provided if discovery_candidates is provided"
                 )
 
-            if not pc.all(
-                pc.is_in(
-                    discovery_candidates.trksub, discovery_candidate_members.trksub
-                )
-            ).as_py():
-                raise ValueError(
-                    "All trksubs in discovery_candidates must be present in discovery_candidate_members"
-                )
+            # Only validate if tables are not empty
+            if len(discovery_candidates) > 0 and len(discovery_candidate_members) > 0:
+                if not pc.all(
+                    pc.is_in(
+                        discovery_candidates.trksub, discovery_candidate_members.trksub
+                    )
+                ).as_py():
+                    raise ValueError(
+                        "All trksubs in discovery_candidates must be present in discovery_candidate_members"
+                    )
 
-            if not pc.all(
-                pc.is_in(
-                    discovery_candidate_members.trksub, discovery_candidates.trksub
-                )
-            ).as_py():
-                raise ValueError(
-                    "All trksubs in discovery_candidate_members must be present in discovery_candidates"
-                )
+                if not pc.all(
+                    pc.is_in(
+                        discovery_candidate_members.trksub, discovery_candidates.trksub
+                    )
+                ).as_py():
+                    raise ValueError(
+                        "All trksubs in discovery_candidate_members must be present in discovery_candidates"
+                    )
 
-            if not pc.all(
-                pc.is_in(discovery_candidate_members.obssubid, source_catalog.id)
-            ).as_py():
-                raise ValueError(
-                    "All obssubids in discovery_candidate_members must be present in source_catalog"
-                )
+                if not pc.all(
+                    pc.is_in(discovery_candidate_members.obssubid, source_catalog.id)
+                ).as_py():
+                    raise ValueError(
+                        "All obssubids in discovery_candidate_members must be present in source_catalog"
+                    )
 
         if association_candidates is not None:
             if association_candidate_members is None:
@@ -780,30 +782,37 @@ class SubmissionManager:
                     "association_candidate_members must be provided if association_candidates is provided"
                 )
 
-            if not pc.all(
-                pc.is_in(
-                    association_candidates.trksub, association_candidate_members.trksub
-                )
-            ).as_py():
-                raise ValueError(
-                    "All trksubs in association_candidates must be present in association_candidate_members"
-                )
+            # Only validate if tables are not empty
+            if (
+                len(association_candidates) > 0
+                and len(association_candidate_members) > 0
+            ):
+                if not pc.all(
+                    pc.is_in(
+                        association_candidates.trksub,
+                        association_candidate_members.trksub,
+                    )
+                ).as_py():
+                    raise ValueError(
+                        "All trksubs in association_candidates must be present in association_candidate_members"
+                    )
 
-            if not pc.all(
-                pc.is_in(
-                    association_candidate_members.trksub, association_candidates.trksub
-                )
-            ).as_py():
-                raise ValueError(
-                    "All trksubs in association_candidate_members must be present in association_candidates"
-                )
+                if not pc.all(
+                    pc.is_in(
+                        association_candidate_members.trksub,
+                        association_candidates.trksub,
+                    )
+                ).as_py():
+                    raise ValueError(
+                        "All trksubs in association_candidate_members must be present in association_candidates"
+                    )
 
-            if not pc.all(
-                pc.is_in(association_candidate_members.obssubid, source_catalog.id)
-            ).as_py():
-                raise ValueError(
-                    "All obssubids in association_candidate_members must be present in source_catalog"
-                )
+                if not pc.all(
+                    pc.is_in(association_candidate_members.obssubid, source_catalog.id)
+                ).as_py():
+                    raise ValueError(
+                        "All obssubids in association_candidate_members must be present in source_catalog"
+                    )
 
         if self._submitter is None:
             self.select_submitter()
@@ -822,16 +831,13 @@ class SubmissionManager:
         os.makedirs(base_dir, exist_ok=True)
 
         # Create ADES Observations for discovery candidates
-        if discovery_candidates is not None:
-            if len(discovery_candidates) == 0:
-                discovery_ades = [ADESObservations.empty()]
-            else:
-                discovery_ades = candidates_to_ades(
-                    discovery_candidates,
-                    discovery_candidate_members,
-                    source_catalog,
-                    max_observations_per_table=max_observations_per_file,
-                )
+        if discovery_candidates is not None and len(discovery_candidates) > 0:
+            discovery_ades = candidates_to_ades(
+                discovery_candidates,
+                discovery_candidate_members,
+                source_catalog,
+                max_observations_per_table=max_observations_per_file,
+            )
 
             self.logger.info(
                 f"Processing {len(discovery_ades)} discovery ADES files for submission {submission_id_prefix}"
@@ -910,16 +916,13 @@ class SubmissionManager:
                 )
 
         # Create ADES Observations for association candidates
-        if association_candidates is not None:
-            if len(association_candidates) == 0:
-                association_ades = [ADESObservations.empty()]
-            else:
-                association_ades = candidates_to_ades(
-                    association_candidates,
-                    association_candidate_members,
-                    source_catalog,
-                    max_observations_per_table=max_observations_per_file,
-                )
+        if association_candidates is not None and len(association_candidates) > 0:
+            association_ades = candidates_to_ades(
+                association_candidates,
+                association_candidate_members,
+                source_catalog,
+                max_observations_per_table=max_observations_per_file,
+            )
 
             # # Assert that provid or permid are not None for any row
             # if pc.any(
@@ -1010,6 +1013,8 @@ class SubmissionManager:
                     [submission_members, submission_members_i]
                 )
 
+        return submissions, submission_members
+
     def delete_prepared_submissions(
         self, submission_ids: Optional[List[str]] = None
     ) -> None:
@@ -1095,7 +1100,7 @@ class SubmissionManager:
         )
         if len(already_submitted) > 0:
             raise ValueError(
-                f"Submissions {already_submitted.id.as_pylist()} have already been submitted"
+                f"Submissions {already_submitted.id.to_pylist()} have already been submitted"
             )
 
         for submission in submissions:
@@ -1155,11 +1160,19 @@ class SubmissionManager:
         if submission_type == "discovery" or submission_type == "association":
 
             try:
+                # Build comment with MD5, handling None case
+                comment = submission_comment or ""
+                comment = (
+                    comment + f" ({submission_file_md5})"
+                    if comment
+                    else f"({submission_file_md5})"
+                )
+
                 mpc_submission_id, submission_time = (
                     self.mpc_submission_client.submit_ades(
                         submission_file_path,
                         submitter_email,
-                        submission_comment + f" ({submission_file_md5})",
+                        comment,
                     )
                 )
                 self._set_submission_success(
