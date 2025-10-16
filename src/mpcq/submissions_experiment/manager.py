@@ -3,7 +3,6 @@ import os
 import queue as qu
 import sys
 import time
-from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
@@ -15,7 +14,7 @@ from adam_core.observations import SourceCatalog
 from adam_core.observations.ades import ADES_to_string, ADESObservations, ObsContext
 from tqdm import tqdm
 
-from ..client import BigQueryMPCClient, MPCClient
+from ..client import MPCClient
 from .mpc import MPCSubmissionClient
 from .types import (
     AssociationCandidates,
@@ -104,7 +103,7 @@ class SubmissionManager:
         Delete the submitter details.
         """
         self._submitter = None
-        self.logger.info("Submitter deleted.")
+        self.logger.info("Submitter deleted")
 
     @property
     def mpc_submission_client(self) -> MPCSubmissionClient:
@@ -179,9 +178,9 @@ class SubmissionManager:
                     )
                     if 0 <= choice <= len(submitters):
                         break
-                    print("Invalid choice. Please try again.")
+                    print("Invalid choice. Please try again")
                 except ValueError:
-                    print("Invalid input. Please enter a number.")
+                    print("Invalid input. Please enter a number")
 
             if choice == 0:
                 self._prompt_new_submitter()
@@ -195,11 +194,11 @@ class SubmissionManager:
                     id=selected.id,
                 )
         else:
-            print("No submitters found in database.")
+            print("No submitters found in database")
             self._prompt_new_submitter()
 
     def _prompt_new_submitter(self) -> None:
-        """Helper method to add a new submitter to the database."""
+        """Helper method to add a new submitter to the database"""
 
         while True:
             first_name = input("Enter first name: ")
@@ -223,7 +222,7 @@ class SubmissionManager:
             if confirm == "y":
                 break
             else:
-                print("Please try again.")
+                print("Please try again")
 
         with self.engine.begin() as conn:
             statement = (
@@ -255,7 +254,7 @@ class SubmissionManager:
             id=submitter_id,
         )
         self.logger.info(
-            f"New submitter added: {self.submitter.first_name} {self.submitter.last_name}, {self.submitter.email}, {self.submitter.institution}."
+            f"New submitter added: {self.submitter.first_name} {self.submitter.last_name}, {self.submitter.email}, {self.submitter.institution}"
         )
 
     def load_queue(self) -> None:
@@ -314,7 +313,7 @@ class SubmissionManager:
         file_handler.setLevel(logging.DEBUG)
         logger.addHandler(file_handler)
 
-        logger.info("SubmissionManager initialized.")
+        logger.info("SubmissionManager initialized")
         logger.info(
             f"Database located at {os.path.join(self.directory, 'tracking.db')}"
         )
@@ -342,7 +341,7 @@ class SubmissionManager:
         os.makedirs(submission_directory, exist_ok=True)
 
         if os.path.exists(os.path.join(directory, "tracking.db")):
-            raise FileExistsError("A database already exists in this directory.")
+            raise FileExistsError("A database already exists in this directory")
 
         engine = sq.create_engine("sqlite:///" + os.path.join(directory, "tracking.db"))
 
@@ -413,7 +412,7 @@ class SubmissionManager:
         tracking_db = os.path.join(directory, "tracking.db")
         if not os.path.exists(tracking_db):
             raise FileNotFoundError(
-                "No database found in this directory. Use create method to create a new database."
+                "No database found in this directory. Use create method to create a new database"
             )
 
         engine = sq.create_engine("sqlite:///" + tracking_db)
@@ -442,7 +441,7 @@ class SubmissionManager:
         )
         if len(submitters_filtered) > 0:
             self.logger.info(
-                f"Submitter {submitter.first_name} {submitter.last_name} already exists in database as {submitters_filtered.id.unique()[0]}."
+                f"Submitter {submitter.first_name} {submitter.last_name} already exists in database as {submitters_filtered.id.unique()[0]}"
             )
             return
 
@@ -458,7 +457,7 @@ class SubmissionManager:
 
         submitter_table.to_sql(self.engine, "submitters", if_exists="append")
         self.logger.info(
-            f"Submitter {submitter.first_name} {submitter.last_name} added to database."
+            f"Submitter {submitter.first_name} {submitter.last_name} added to database"
         )
 
     def get_submitters(self, submitter_ids: Optional[List[int]] = None) -> Submitters:
@@ -578,7 +577,7 @@ class SubmissionManager:
 
         for submission_id in submission_ids:
 
-            self.logger.info(f"Querying submission status for '{submission_id}'...")
+            self.logger.info(f"Querying status of '{submission_id}' submission...")
 
             # Get submission
             submission_i = self.get_submissions(submission_ids=[submission_id])
@@ -590,22 +589,31 @@ class SubmissionManager:
 
             if len(submission_i) == 0:
                 raise ValueError(
-                    f"Submission '{submission_id}' not found in tracking database."
+                    f"Submission '{submission_id}' not found in tracking database"
                 )
 
             mpc_submission_id = submission_i.mpc_submission_id[0].as_py()
             if mpc_submission_id is None:
                 raise ValueError(
-                    f"Submission '{submission_id}' does not have an MPC submission ID."
+                    f"Submission '{submission_id}' does not have an MPC submission ID"
                 )
 
             self.logger.info(
-                f"Submission '{submission_id}' (MPC submission ID: {mpc_submission_id}) has {len(submission_members_i)} members."
+                f"Submission '{submission_id}' (MPC submission ID: '{mpc_submission_id}') has {len(submission_members_i)} members"
             )
 
             # Query WAMO for the submission results
-            self.logger.info(f"Querying WAMO for submission {mpc_submission_id}...")
-            wamo_results_i = self.mpc_submission_client.query_wamo([mpc_submission_id])
+            self.logger.info(f"Querying WAMO for submission '{mpc_submission_id}'...")
+            try:
+                wamo_results_i = self.mpc_submission_client.query_wamo(
+                    [mpc_submission_id]
+                )
+            except Exception as e:
+                self.logger.error(
+                    f"Error querying WAMO for submission '{submission_id}': {e}"
+                )
+                continue
+
             if pc.all(pc.invert(pc.is_null(wamo_results_i.error))).as_py():
                 raise ValueError(
                     f"Error querying WAMO for submission '{submission_id}': {wamo_results_i.error[0].as_py()}"
@@ -615,7 +623,7 @@ class SubmissionManager:
                 [f"wamo_{col}" for col in wamo_results_i.table.column_names]
             )
             self.logger.info(
-                f"WAMO results has {len(wamo_results_i)} results for submission '{submission_id}'."
+                f"WAMO results has {len(wamo_results_i)} results for submission '{submission_id}'"
             )
 
             # Get the submission members table and join the WAMO results to it using
@@ -629,13 +637,13 @@ class SubmissionManager:
             # WAMO simply returns iau_desig which can be either a permid or provid. It is useful to have both if
             # they exist.
             self.logger.info(
-                f"Querying MPC Client for submission {mpc_submission_id}..."
+                f"Querying MPC Client for submission '{mpc_submission_id}'..."
             )
-            submission_results_i = self.client.query_submission_results(
+            submission_results_i = self.mpc_sbn_client.query_submission_results(
                 [mpc_submission_id]
             )
             self.logger.info(
-                f"MPC Client results has {len(submission_results_i)} results for submission '{submission_id}'."
+                f"MPC Client results has {len(submission_results_i)} results for submission '{submission_id}'"
             )
 
             # Rename the columns to include the mpcq prefix andthen join the results to the submission members
@@ -671,7 +679,7 @@ class SubmissionManager:
                 self.engine, "submission_members", if_exists="update"
             )
             self.logger.info(
-                f"Updated {len(submission_members_updated_i)} members for submission '{submission_id}' in the database."
+                f"Updated {len(submission_members_updated_i)} members for submission '{submission_id}' in the database"
             )
 
             submission_members_updated = qv.concatenate(
@@ -732,13 +740,13 @@ class SubmissionManager:
         """
         if discovery_candidates is None and association_candidates is None:
             raise ValueError(
-                "At least one of discovery_candidates or association_candidates must be provided."
+                "At least one of discovery_candidates or association_candidates must be provided"
             )
 
         if discovery_candidates is not None:
             if discovery_candidate_members is None:
                 raise ValueError(
-                    "discovery_candidate_members must be provided if discovery_candidates is provided."
+                    "discovery_candidate_members must be provided if discovery_candidates is provided"
                 )
 
             if not pc.all(
@@ -747,7 +755,7 @@ class SubmissionManager:
                 )
             ).as_py():
                 raise ValueError(
-                    "All trksubs in discovery_candidates must be present in discovery_candidate_members."
+                    "All trksubs in discovery_candidates must be present in discovery_candidate_members"
                 )
 
             if not pc.all(
@@ -756,20 +764,20 @@ class SubmissionManager:
                 )
             ).as_py():
                 raise ValueError(
-                    "All trksubs in discovery_candidate_members must be present in discovery_candidates."
+                    "All trksubs in discovery_candidate_members must be present in discovery_candidates"
                 )
 
             if not pc.all(
                 pc.is_in(discovery_candidate_members.obssubid, source_catalog.id)
             ).as_py():
                 raise ValueError(
-                    "All obssubids in discovery_candidate_members must be present in source_catalog."
+                    "All obssubids in discovery_candidate_members must be present in source_catalog"
                 )
 
         if association_candidates is not None:
             if association_candidate_members is None:
                 raise ValueError(
-                    "association_candidate_members must be provided if association_candidates is provided."
+                    "association_candidate_members must be provided if association_candidates is provided"
                 )
 
             if not pc.all(
@@ -778,7 +786,7 @@ class SubmissionManager:
                 )
             ).as_py():
                 raise ValueError(
-                    "All trksubs in association_candidates must be present in association_candidate_members."
+                    "All trksubs in association_candidates must be present in association_candidate_members"
                 )
 
             if not pc.all(
@@ -787,14 +795,14 @@ class SubmissionManager:
                 )
             ).as_py():
                 raise ValueError(
-                    "All trksubs in association_candidate_members must be present in association_candidates."
+                    "All trksubs in association_candidate_members must be present in association_candidates"
                 )
 
             if not pc.all(
                 pc.is_in(association_candidate_members.obssubid, source_catalog.id)
             ).as_py():
                 raise ValueError(
-                    "All obssubids in association_candidate_members must be present in source_catalog."
+                    "All obssubids in association_candidate_members must be present in source_catalog"
                 )
 
         if self._submitter is None:
@@ -1087,7 +1095,7 @@ class SubmissionManager:
         )
         if len(already_submitted) > 0:
             raise ValueError(
-                f"Submissions {already_submitted.submission_id.as_pylist()} have already been submitted."
+                f"Submissions {already_submitted.id.as_pylist()} have already been submitted"
             )
 
         for submission in submissions:
@@ -1208,7 +1216,7 @@ class SubmissionManager:
 
             if result:
                 raise ValueError(
-                    f"Submission '{submission_id}' has already been marked as submitted."
+                    f"Submission '{submission_id}' has already been marked as submitted"
                 )
 
         # Now, update the submission to mark it as submitted
@@ -1227,7 +1235,7 @@ class SubmissionManager:
             conn.execute(stmt)
 
             self.logger.info(
-                f"Submission '{submission_id}' marked as submitted (MPC submission ID: '{mpc_submission_id}')."
+                f"Submission '{submission_id}' marked as submitted (MPC submission ID: '{mpc_submission_id}')"
             )
 
         return
