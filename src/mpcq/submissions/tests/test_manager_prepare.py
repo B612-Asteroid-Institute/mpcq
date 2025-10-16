@@ -559,3 +559,129 @@ class TestPrepareCustomPrecision:
 
         # Should complete successfully
         assert len(submissions) > 0
+
+
+class TestPrepareMultipleObsContexts:
+    """Tests for preparing submissions with multiple observatory contexts."""
+
+    def test_prepare_with_multiple_observatory_configs_same_mpc_code(
+        self,
+        manager_with_submitter,
+        sample_source_catalog,
+        sample_discovery_candidates,
+        sample_discovery_members,
+    ):
+        """
+        Test that we can store multiple configs for the same MPC code and use one for submission.
+
+        This tests the scenario where you have LSSTCam and ComCam configs stored in the database,
+        and you select LSSTCam for a particular submission.
+        """
+        import json
+
+        from adam_core.observations.ades import (
+            ObsContext,
+            ObservatoryObsContext,
+            TelescopeObsContext,
+        )
+
+        # Create two different observatory contexts with the same MPC code but different instruments
+        submitter_ctx = manager_with_submitter.get_submitter_obscontext()
+
+        obscontext_lsstcam = ObsContext(
+            observatory=ObservatoryObsContext(
+                mpcCode="X05",
+                name="Vera C. Rubin Observatory",
+            ),
+            submitter=submitter_ctx,
+            measurers=["J. Moeyens"],
+            telescope=TelescopeObsContext(
+                name="Simonyi Survey Telescope - LSSTCam",
+                design="Modified Paul-Baker",
+                aperture=8.4,
+                detector="CCD",
+            ),
+        )
+
+        obscontext_comcam = ObsContext(
+            observatory=ObservatoryObsContext(
+                mpcCode="X05",
+                name="Vera C. Rubin Observatory",
+            ),
+            submitter=submitter_ctx,
+            measurers=["J. Moeyens"],
+            telescope=TelescopeObsContext(
+                name="Simonyi Survey Telescope - ComCam",
+                design="Modified Paul-Baker",
+                aperture=8.4,
+                detector="CCD",
+            ),
+        )
+
+        # Store both configs in database with different config names
+        lsstcam_id = manager_with_submitter.store_observatory_config(
+            "X05", obscontext_lsstcam, config_name="X05_LSSTCAM"
+        )
+        comcam_id = manager_with_submitter.store_observatory_config(
+            "X05", obscontext_comcam, config_name="X05_COMCAM"
+        )
+
+        assert lsstcam_id != comcam_id  # Should have different IDs
+
+        # Verify both are stored
+        all_configs = manager_with_submitter.list_observatory_configs()
+        config_names = [c["config_name"] for c in all_configs]
+
+        assert "X05_LSSTCAM" in config_names
+        assert "X05_COMCAM" in config_names
+
+        # Now prepare a submission using the LSSTCam config
+        # The key must be the MPC code for ADES generation
+        obscontexts_for_submission = {
+            "X05": obscontext_lsstcam,
+        }
+
+        submissions, members = manager_with_submitter.prepare_submissions(
+            source_catalog=sample_source_catalog,
+            obscontexts=obscontexts_for_submission,
+            discovery_candidates=sample_discovery_candidates,
+            discovery_candidate_members=sample_discovery_members,
+        )
+
+        # Should complete successfully
+        assert len(submissions) > 0
+        submission = submissions[0]
+
+        # Check that observatory_codes and observatory_config_ids are stored
+        observatory_codes_json = submission.observatory_codes[0].as_py()
+        config_ids_json = submission.observatory_config_ids[0].as_py()
+
+        assert observatory_codes_json is not None
+        assert config_ids_json is not None
+
+        # Parse JSON
+        observatory_codes = json.loads(observatory_codes_json)
+        config_ids = json.loads(config_ids_json)
+
+        # Should have one MPC code
+        assert len(observatory_codes) == 1
+        assert len(config_ids) == 1
+        assert "X05" in observatory_codes
+
+        # The config ID should be the one we just stored
+        # (Note: sync_observatory_configs will store it again, so ID might be different)
+
+        # Verify the database has both configs with correct details
+        lsstcam_db_config = next(
+            (c for c in all_configs if c["config_name"] == "X05_LSSTCAM"), None
+        )
+        comcam_db_config = next(
+            (c for c in all_configs if c["config_name"] == "X05_COMCAM"), None
+        )
+
+        assert lsstcam_db_config is not None
+        assert comcam_db_config is not None
+        assert lsstcam_db_config["mpc_code"] == "X05"
+        assert comcam_db_config["mpc_code"] == "X05"
+        assert lsstcam_db_config["id"] == lsstcam_id
+        assert comcam_db_config["id"] == comcam_id

@@ -52,6 +52,10 @@ class Submissions(qv.Table, SQLQuivrTable):
     first_observation_mjd_utc = qv.Float64Column(nullable=True)
     #: Last observation time (MJD UTC)
     last_observation_mjd_utc = qv.Float64Column(nullable=True)
+    #: MPC observatory codes used (JSON list)
+    observatory_codes = qv.LargeStringColumn(nullable=True)
+    #: Database IDs of observatory configurations used (JSON list)
+    observatory_config_ids = qv.LargeStringColumn(nullable=True)
     #: Timestamp when the submission was created
     created_at = qv.TimestampColumn("ms", tz="utc")
     #: Timestamp when the submission was submitted

@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import queue as qu
@@ -10,11 +11,18 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import quivr as qv
 import sqlalchemy as sq
+import yaml
 from adam_core.observations import SourceCatalog
-from adam_core.observations.ades import ADES_to_string, ADESObservations, ObsContext
+from adam_core.observations.ades import (
+    ADES_to_string,
+    ADESObservations,
+    ObsContext,
+    SubmitterObsContext,
+)
 from tqdm import tqdm
 
 from ..client import MPCClient
+from .config import ObservatoryConfig
 from .mpc import MPCSubmissionClient
 from .types import (
     AssociationCandidateMembers,
@@ -358,6 +366,12 @@ class SubmissionManager:
             sq.Column("observations", sq.Integer),
             sq.Column("first_observation_mjd_utc", sq.Float),
             sq.Column("last_observation_mjd_utc", sq.Float),
+            sq.Column(
+                "observatory_codes", sq.String, nullable=True
+            ),  # JSON list of MPC codes used
+            sq.Column(
+                "observatory_config_ids", sq.String, nullable=True
+            ),  # JSON list of config IDs
             sq.Column("created_at", sq.DateTime),
             sq.Column("submitted_at", sq.DateTime, nullable=True),
             sq.Column("file_path", sq.String),
@@ -390,6 +404,20 @@ class SubmissionManager:
             sq.Column("email", sq.String),
             sq.Column("institution", sq.String, nullable=True),
             sq.Column("created_at", sq.DateTime),
+        )
+
+        sq.Table(
+            "observatory_configs",
+            metadata,
+            sq.Column("id", sq.Integer, primary_key=True, autoincrement=True),
+            sq.Column("mpc_code", sq.String),
+            sq.Column("config_name", sq.String),
+            sq.Column("config_yaml", sq.String),
+            sq.Column("created_at", sq.DateTime),
+            sq.Column("updated_at", sq.DateTime),
+            sq.Column("is_active", sq.Boolean, default=True),
+            # Composite unique constraint: can have multiple configs per mpc_code
+            sq.UniqueConstraint("mpc_code", "config_name", name="uix_mpc_config"),
         )
         metadata.create_all(engine)
 
@@ -483,6 +511,293 @@ class SubmissionManager:
             statement = sq.select(self.tables["submitters"])
 
         return Submitters.from_sql(self.engine, "submitters", statement=statement)
+
+    def get_submitter_obscontext(self) -> SubmitterObsContext:
+        """
+        Get the current submitter as a SubmitterObsContext for ADES headers.
+
+        This formats the database submitter appropriately for ADES submission,
+        using the format "F. LastName" for the name.
+
+        Returns
+        -------
+        SubmitterObsContext
+            The submitter context for ADES.
+
+        Raises
+        ------
+        ValueError
+            If no submitter is selected.
+        """
+        if self._submitter is None:
+            raise ValueError("No submitter selected. Call select_submitter() first.")
+
+        # Format name as "F. LastName"
+        name = f"{self._submitter.first_name[0]}. {self._submitter.last_name}"
+
+        return SubmitterObsContext(name=name, institution=self._submitter.institution)
+
+    def load_obscontexts_with_submitter(
+        self, config_path: Optional[str] = None
+    ) -> Dict[str, ObsContext]:
+        """
+        Load ObsContexts from config file and populate with current database submitter.
+
+        This is a convenience method that loads observatory configurations from a
+        YAML file and automatically populates the submitter field from the currently
+        selected database submitter. This ensures that the ADES header attribution
+        matches the MPC API authentication.
+
+        Parameters
+        ----------
+        config_path : Optional[str]
+            Path to config file. If None, searches default locations.
+
+        Returns
+        -------
+        Dict[str, ObsContext]
+            Dictionary mapping MPC codes to ObsContext objects with submitter
+            populated from database.
+
+        Raises
+        ------
+        ValueError
+            If no submitter is selected.
+
+        Examples
+        --------
+        >>> manager = SubmissionManager.from_dir("/path")
+        >>> manager.select_submitter(submitter_id=1)
+        >>> obscontexts = manager.load_obscontexts_with_submitter("observatories.yaml")
+        """
+        if self._submitter is None:
+            raise ValueError("No submitter selected. Call select_submitter() first.")
+
+        # Get submitter from database
+        submitter_ctx = self.get_submitter_obscontext()
+
+        # Load configs and populate submitter
+        obscontexts = ObservatoryConfig.load_obscontexts(
+            config_path, submitter=submitter_ctx
+        )
+
+        return obscontexts
+
+    def store_observatory_config(
+        self, mpc_code: str, obscontext: ObsContext, config_name: Optional[str] = None
+    ) -> int:
+        """
+        Store an observatory configuration in the database.
+
+        If a configuration with this MPC code AND config_name already exists,
+        it will be updated. Otherwise, a new configuration is created.
+
+        This allows storing multiple configurations for the same MPC observatory
+        code (e.g., different instruments, time periods, or pipelines).
+
+        Parameters
+        ----------
+        mpc_code : str
+            The MPC observatory code.
+        obscontext : ObsContext
+            The ObsContext object to store.
+        config_name : Optional[str]
+            A name for this configuration. If None, uses mpc_code.
+            Use different names to store multiple configs for same observatory.
+
+        Returns
+        -------
+        int
+            The database ID of the stored configuration.
+
+        Examples
+        --------
+        >>> # Store two different configs for same observatory
+        >>> id1 = manager.store_observatory_config("X05", lsstcam_config, "X05_LSSTCAM")
+        >>> id2 = manager.store_observatory_config("X05", comcam_config, "X05_COMCAM")
+        >>> # Both stored with different IDs
+        """
+        if config_name is None:
+            config_name = mpc_code
+
+        # Convert ObsContext to YAML
+        config_dict = ObservatoryConfig.obscontext_to_dict(obscontext)
+        config_yaml = yaml.dump(config_dict, default_flow_style=False, sort_keys=False)
+
+        # Check if config already exists (by mpc_code AND config_name)
+        with self.engine.begin() as conn:
+            statement = sq.select(self.tables["observatory_configs"]).where(
+                sq.and_(
+                    self.tables["observatory_configs"].c.mpc_code == mpc_code,
+                    self.tables["observatory_configs"].c.config_name == config_name,
+                )
+            )
+            result = conn.execute(statement).fetchone()
+
+            now = datetime.now().astimezone(timezone.utc)
+
+            if result is None:
+                # Insert new config
+                statement = sq.insert(self.tables["observatory_configs"]).values(
+                    mpc_code=mpc_code,
+                    config_name=config_name,
+                    config_yaml=config_yaml,
+                    created_at=now,
+                    updated_at=now,
+                    is_active=True,
+                )
+                result = conn.execute(statement)
+                config_id = result.inserted_primary_key[0]
+                self.logger.info(
+                    f"Stored new observatory configuration '{config_name}' for {mpc_code} (ID: {config_id})"
+                )
+            else:
+                # Update existing config
+                config_id = result[0]
+                statement = (
+                    sq.update(self.tables["observatory_configs"])
+                    .where(
+                        sq.and_(
+                            self.tables["observatory_configs"].c.mpc_code == mpc_code,
+                            self.tables["observatory_configs"].c.config_name
+                            == config_name,
+                        )
+                    )
+                    .values(
+                        config_yaml=config_yaml,
+                        updated_at=now,
+                    )
+                )
+                conn.execute(statement)
+                self.logger.info(
+                    f"Updated observatory configuration '{config_name}' for {mpc_code} (ID: {config_id})"
+                )
+
+        return config_id
+
+    def get_observatory_config(
+        self, mpc_code: str, config_name: Optional[str] = None
+    ) -> Optional[ObsContext]:
+        """
+        Retrieve an observatory configuration from the database.
+
+        If multiple configs exist for the same MPC code and config_name is not
+        provided, returns the most recently updated one.
+
+        Parameters
+        ----------
+        mpc_code : str
+            The MPC observatory code.
+        config_name : Optional[str]
+            The config name to retrieve. If None and multiple configs exist,
+            returns the most recently updated one.
+
+        Returns
+        -------
+        Optional[ObsContext]
+            The ObsContext object, or None if not found.
+
+        Examples
+        --------
+        >>> # Get specific config
+        >>> obscontext = manager.get_observatory_config("X05", "X05_LSSTCAM")
+        >>> # Get most recent config for X05
+        >>> obscontext = manager.get_observatory_config("X05")
+        """
+        with self.engine.connect() as conn:
+            if config_name is not None:
+                # Get specific config
+                statement = sq.select(self.tables["observatory_configs"]).where(
+                    sq.and_(
+                        self.tables["observatory_configs"].c.mpc_code == mpc_code,
+                        self.tables["observatory_configs"].c.config_name == config_name,
+                    )
+                )
+            else:
+                # Get most recent config for this MPC code
+                statement = (
+                    sq.select(self.tables["observatory_configs"])
+                    .where(self.tables["observatory_configs"].c.mpc_code == mpc_code)
+                    .order_by(self.tables["observatory_configs"].c.updated_at.desc())
+                    .limit(1)
+                )
+
+            result = conn.execute(statement).fetchone()
+
+            if result is None:
+                return None
+
+            # Parse YAML to dict and convert to ObsContext
+            config_dict = yaml.safe_load(result[3])  # config_yaml is column 3
+            return ObservatoryConfig.dict_to_obscontext(config_dict)
+
+    def list_observatory_configs(self) -> List[Dict[str, any]]:
+        """
+        List all observatory configurations in the database.
+
+        Returns
+        -------
+        List[Dict[str, any]]
+            List of dictionaries with config metadata (id, mpc_code, config_name, etc.)
+        """
+        with self.engine.connect() as conn:
+            statement = sq.select(self.tables["observatory_configs"])
+            results = conn.execute(statement).fetchall()
+
+            configs = []
+            for row in results:
+                configs.append(
+                    {
+                        "id": row[0],
+                        "mpc_code": row[1],
+                        "config_name": row[2],
+                        "created_at": row[4],
+                        "updated_at": row[5],
+                        "is_active": row[6],
+                    }
+                )
+            return configs
+
+    def sync_observatory_configs(
+        self, obscontexts: Dict[str, ObsContext]
+    ) -> Dict[str, int]:
+        """
+        Sync multiple observatory configurations to the database.
+
+        The dictionary keys are used as config_names, allowing you to store
+        multiple configurations for the same MPC observatory code by using
+        different keys (e.g., "X05_LSSTCAM", "X05_COMCAM").
+
+        Parameters
+        ----------
+        obscontexts : Dict[str, ObsContext]
+            Dictionary mapping config names/keys to ObsContext objects.
+            Keys can be anything (e.g., "X05", "X05_LSSTCAM", "Rubin_LSSTCam").
+
+        Returns
+        -------
+        Dict[str, int]
+            Dictionary mapping config names to database config IDs.
+
+        Examples
+        --------
+        >>> obscontexts = {
+        ...     "X05_LSSTCAM": lsstcam_obscontext,
+        ...     "X05_COMCAM": comcam_obscontext,
+        ... }
+        >>> config_ids = manager.sync_observatory_configs(obscontexts)
+        >>> # Returns: {"X05_LSSTCAM": 1, "X05_COMCAM": 2}
+        """
+        config_ids = {}
+        for config_key, obscontext in obscontexts.items():
+            # Extract MPC code from the ObsContext
+            mpc_code = obscontext.observatory.mpcCode
+            # Use the dictionary key as the config_name
+            config_id = self.store_observatory_config(
+                mpc_code, obscontext, config_name=config_key
+            )
+            config_ids[config_key] = config_id
+        return config_ids
 
     def get_submissions(
         self,
@@ -823,6 +1138,11 @@ class SubmissionManager:
         if seconds_precision is None:
             seconds_precision = DEFAULT_ADES_CONFIG["seconds_precision"]
 
+        # Store observatory configurations in database and get their IDs
+        config_ids_map = self.sync_observatory_configs(obscontexts)
+        observatory_codes = list(obscontexts.keys())
+        config_ids = [config_ids_map[code] for code in observatory_codes]
+
         submissions = Submissions.empty()
         submission_members = SubmissionMembers.empty()
 
@@ -880,6 +1200,8 @@ class SubmissionManager:
                     last_observation_mjd_utc=discovery_ades_i.obsTime.max()
                     .rescale("utc")
                     .mjd(),
+                    observatory_codes=[json.dumps(observatory_codes)],
+                    observatory_config_ids=[json.dumps(config_ids)],
                     created_at=[datetime.now().astimezone(timezone.utc)],
                     submitted_at=None,
                     file_path=[file_path],
@@ -976,6 +1298,8 @@ class SubmissionManager:
                     last_observation_mjd_utc=association_ades_i.obsTime.max()
                     .rescale("utc")
                     .mjd(),
+                    observatory_codes=[json.dumps(observatory_codes)],
+                    observatory_config_ids=[json.dumps(config_ids)],
                     created_at=[datetime.now().astimezone(timezone.utc)],
                     submitted_at=None,
                     file_path=[file_path],
