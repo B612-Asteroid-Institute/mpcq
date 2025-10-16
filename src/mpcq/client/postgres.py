@@ -1,4 +1,4 @@
-from typing import Any, List
+from typing import Any, List, Optional
 
 import adbc_driver_postgresql
 import adbc_driver_postgresql.dbapi
@@ -11,11 +11,11 @@ from astropy.time import Time
 
 from ..observations import CrossMatchedMPCObservations, MPCObservations
 from ..orbits import MPCOrbits, MPCPrimaryObjects
-from ..submissions import (
+from ..submissions.types import (
     MPCSubmissionHistory,
     MPCSubmissionResults,
-    infer_submission_time,
 )
+from ..submissions.utils import infer_submission_time
 from .client import MPCClient
 
 
@@ -30,7 +30,7 @@ class PostgresMPCClient(MPCClient):
         host: str,
         database: str,
         user: str,
-        password: str,
+        password: Optional[str] = None,
         port: int = 5432,
         schema: str = "public",
         **kwargs: Any,
@@ -354,6 +354,27 @@ class PostgresMPCClient(MPCClient):
             ON obs_sbn.permid = ni.permid
         ORDER BY requested_submission_id ASC, obs_sbn.obsid ASC
         """
+        query = f"""
+        WITH requested_submission_ids AS (
+            SELECT submission_id
+            FROM UNNEST(ARRAY[{_to_postgres_string_array(submission_ids)}]) AS submission_id
+        )
+        SELECT DISTINCT
+            sb.submission_id AS requested_submission_id,
+            obs_sbn.obsid,
+            obs_sbn.obssubid, 
+            obs_sbn.trksub, 
+            obs_sbn.provid as primary_designation,
+            obs_sbn.permid, 
+            obs_sbn.provid, 
+            obs_sbn.submission_id, 
+            obs_sbn.status
+        FROM requested_submission_ids AS sb
+        LEFT JOIN obs_sbn AS obs_sbn
+            ON sb.submission_id = obs_sbn.submission_id
+        ORDER BY requested_submission_id ASC, obs_sbn.obsid ASC
+        """
+
         with self.conn.cursor() as cursor:
             cursor.execute(query)
             table = cursor.fetch_arrow_table().combine_chunks()
@@ -368,6 +389,7 @@ class PostgresMPCClient(MPCClient):
             primary_designation=pc.cast(
                 table.column("primary_designation"), pa.large_string()
             ),
+            permid=pc.cast(table.column("permid"), pa.large_string()),
             provid=pc.cast(table.column("provid"), pa.large_string()),
             submission_id=pc.cast(table.column("submission_id"), pa.large_string()),
             status=pc.cast(table.column("status"), pa.large_string()),

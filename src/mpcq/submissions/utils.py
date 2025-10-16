@@ -1,7 +1,8 @@
 import hashlib
 import uuid
+import warnings
 from datetime import datetime
-from typing import Dict, Iterator, List, Literal, Optional, Tuple
+from typing import Iterator, List, Literal, Optional
 
 import numpy as np
 import pyarrow as pa
@@ -188,3 +189,43 @@ def candidates_to_ades(
         ades_tables.append(chunk)
 
     return ades_tables
+
+
+def infer_submission_time(
+    submission_ids: List[str], last_observation_times: Timestamp
+) -> Timestamp:
+    """
+    Infer the submission time from the submission ID and last observation time for
+    each submission.
+
+    In some cases, for historical submissions the submission ID is "00000000". In these instances,
+    the last observation time is used as the submission time. A warning is raised to alert the user
+    that the submission ID is "00000000".
+
+    Parameters
+    ----------
+    submission_ids : list of str
+        List of submission IDs.
+    last_observation_times : Timestamp
+        Last observation time for each submission.
+
+    Returns
+    -------
+    Timestamp
+        Submission time for each submission.
+    """
+    times_isot = []
+    for i, (submission_id, last_observation_time) in enumerate(
+        zip(submission_ids, last_observation_times)
+    ):
+        if submission_id == "00000000":
+            submission_time = last_observation_time
+            warnings.warn(
+                f"Submission ID is 00000000 for observation at index {i}. Using observation time as submission time."
+            )
+        else:
+            submission_time = submission_id.split("_")[0]
+
+        times_isot.append(submission_time)
+
+    return Timestamp.from_astropy(Time(times_isot, format="isot", scale="utc"))

@@ -10,11 +10,11 @@ from google.cloud import bigquery
 
 from ..observations import CrossMatchedMPCObservations, MPCObservations
 from ..orbits import MPCOrbits, MPCPrimaryObjects
-from ..submissions import (
+from ..submissions.types import (
     MPCSubmissionHistory,
     MPCSubmissionResults,
-    infer_submission_time,
 )
+from ..submissions.utils import infer_submission_time
 from .client import METERS_PER_ARCSECONDS, MPCClient
 
 

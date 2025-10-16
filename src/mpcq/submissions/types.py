@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 import quivr as qv
+from adam_core.time import Timestamp
 
 from ..qvsql import SQLQuivrTable
 
@@ -110,3 +111,37 @@ class Submitter:
     email: str
     institution: Optional[str]
     id: Optional[int] = None  # Incremented by the database
+
+
+class MPCCrossmatch(qv.Table):
+    obs_id = qv.LargeStringColumn()
+    mpc_id = qv.LargeStringColumn()
+    time_difference = qv.Float64Column()
+    distance = qv.Float64Column()
+    status = qv.LargeStringColumn(nullable=True)
+    trksub = qv.LargeStringColumn(nullable=True)
+
+
+class MPCSubmissionResults(qv.Table):
+    requested_submission_id = qv.LargeStringColumn()
+    obsid = qv.LargeStringColumn(nullable=True)
+    obssubid = qv.LargeStringColumn(nullable=True)
+    trksub = qv.LargeStringColumn(nullable=True)
+    primary_designation = qv.LargeStringColumn(nullable=True)
+    permid = qv.LargeStringColumn(nullable=True)
+    provid = qv.LargeStringColumn(nullable=True)
+    submission_id = qv.LargeStringColumn(nullable=True)
+    status = qv.LargeStringColumn(nullable=True)
+
+
+class MPCSubmissionHistory(qv.Table):
+    requested_provid = qv.LargeStringColumn()
+    primary_designation = qv.LargeStringColumn(nullable=True)
+    submission_id = qv.LargeStringColumn(nullable=True)
+    submission_time = Timestamp.as_column(nullable=True)
+    first_submission = qv.BooleanColumn(nullable=True)
+    last_submission = qv.BooleanColumn(nullable=True)
+    num_obs = qv.Int64Column(nullable=True)
+    first_obs_time = Timestamp.as_column(nullable=True)
+    last_obs_time = Timestamp.as_column(nullable=True)
+    arc_length = qv.Float64Column(nullable=True)

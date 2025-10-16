@@ -5,7 +5,7 @@ from adam_core.observations import ADESObservations
 
 from ..observations import CrossMatchedMPCObservations, MPCObservations
 from ..orbits import MPCOrbits, MPCPrimaryObjects
-from ..submissions import (
+from ..submissions.types import (
     MPCSubmissionHistory,
     MPCSubmissionResults,
 )
