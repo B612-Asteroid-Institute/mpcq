@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, List
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pyarrow as pa
@@ -23,7 +23,12 @@ METERS_PER_ARCSECONDS = 30.87
 class MPCClient(ABC):
 
     @abstractmethod
-    def query_observations(self, provids: List[str]) -> MPCObservations:
+    def query_observations(
+        self,
+        provids: List[str],
+        include_columns: Optional[List[str]] = None,
+        exclude_columns: Optional[List[str]] = None,
+    ) -> MPCObservations:
         """
         Query the MPC database for the observations and associated data for the given
         provisional designations.
@@ -32,6 +37,11 @@ class MPCClient(ABC):
         ----------
         provids : List[str]
             List of provisional designations to query.
+        include_columns : Optional[List[str]]
+            Columns to include from `public_obs_sbn`. If None, includes a sensible default set.
+            Use together with exclude_columns; include is applied first.
+        exclude_columns : Optional[List[str]]
+            Columns to exclude from the final selection. Applied after include_columns.
 
         Returns
         -------
@@ -168,6 +178,32 @@ class MPCClient(ABC):
 
 class BigQueryMPCClient(MPCClient):
 
+    # Default columns if none specified
+    default_columns: List[str] = [
+        "id",
+        "obsid",
+        "trksub",
+        "provid",
+        "permid",
+        "submission_id",
+        "obssubid",
+        "obstime",
+        "ra",
+        "dec",
+        "rmsra",
+        "rmsdec",
+        "rmscorr",
+        "mag",
+        "rmsmag",
+        "band",
+        "stn",
+        "updated_at",
+        "created_at",
+        "status",
+        "astcat",
+        "mode",
+    ]
+
     def __init__(
         self,
         dataset_id: str,
@@ -178,7 +214,12 @@ class BigQueryMPCClient(MPCClient):
         self.dataset_id = dataset_id
         self.views_dataset_id = views_dataset_id
 
-    def query_observations(self, provids: List[str]) -> MPCObservations:
+    def query_observations(
+        self,
+        provids: List[str],
+        include_columns: Optional[List[str]] = None,
+        exclude_columns: Optional[List[str]] = None,
+    ) -> MPCObservations:
         """
         Query the MPC database for the observations and associated data for the given
         provisional designations.
@@ -187,6 +228,11 @@ class BigQueryMPCClient(MPCClient):
         ----------
         provids : List[str]
             List of provisional designations to query.
+        include_columns : Optional[List[str]]
+            Columns to include from `public_obs_sbn`. If None, includes a sensible default set.
+            Use together with exclude_columns; include is applied first.
+        exclude_columns : Optional[List[str]]
+            Columns to exclude from the final selection. Applied after include_columns.
 
         Returns
         -------
@@ -195,38 +241,138 @@ class BigQueryMPCClient(MPCClient):
         """
         provids_str = ", ".join([f'"{id}"' for id in provids])
 
+        # Map MPCObservations fields to SQL select expressions (with casts/aliases)
+        field_sql: Dict[str, str] = {
+            # Identity and linkage
+            "id": "obs_sbn.id AS id",
+            "obsid": "obs_sbn.obsid AS obsid",
+            "trksub": "obs_sbn.trksub AS trksub",
+            "trkid": "obs_sbn.trkid AS trkid",
+            "provid": "obs_sbn.provid AS provid",
+            "permid": "obs_sbn.permid AS permid",
+            "submission_id": "obs_sbn.submission_id AS submission_id",
+            "submission_block_id": "obs_sbn.submission_block_id AS submission_block_id",
+            "obssubid": "obs_sbn.obssubid AS obssubid",
+            # Raw content
+            "obs80": "obs_sbn.obs80 AS obs80",
+            "status": "obs_sbn.status AS status",
+            "ref": "obs_sbn.ref AS ref",
+            "healpix": "obs_sbn.healpix AS healpix",
+            "artsat": "obs_sbn.artsat AS artsat",
+            "mode": "obs_sbn.mode AS mode",
+            "stn": "obs_sbn.stn AS stn",
+            "trx": "obs_sbn.trx AS trx",
+            "rcv": "obs_sbn.rcv AS rcv",
+            "sys": "obs_sbn.sys AS sys",
+            "ctr": "obs_sbn.ctr AS ctr",
+            "pos1": "obs_sbn.pos1 AS pos1",
+            "pos2": "obs_sbn.pos2 AS pos2",
+            "pos3": "obs_sbn.pos3 AS pos3",
+            "poscov11": "obs_sbn.poscov11 AS poscov11",
+            "poscov12": "obs_sbn.poscov12 AS poscov12",
+            "poscov13": "obs_sbn.poscov13 AS poscov13",
+            "poscov22": "obs_sbn.poscov22 AS poscov22",
+            "poscov23": "obs_sbn.poscov23 AS poscov23",
+            "poscov33": "obs_sbn.poscov33 AS poscov33",
+            "prog": "obs_sbn.prog AS prog",
+            # Time and geometry
+            "obstime": "obs_sbn.obstime AS obstime",
+            "obstime_text": "obs_sbn.obstime_text AS obstime_text",
+            "ra": "CAST(obs_sbn.ra AS FLOAT64) AS ra",
+            "dec": "CAST(obs_sbn.dec AS FLOAT64) AS dec",
+            "rastar": "obs_sbn.rastar AS rastar",
+            "decstar": "obs_sbn.decstar AS decstar",
+            "obscenter": "obs_sbn.obscenter AS obscenter",
+            "deltara": "obs_sbn.deltara AS deltara",
+            "deltadec": "obs_sbn.deltadec AS deltadec",
+            "dist": "obs_sbn.dist AS dist",
+            "pa": "obs_sbn.pa AS pa",
+            "rmsra": "CAST(obs_sbn.rmsra AS FLOAT64) AS rmsra",
+            "rmsdec": "CAST(obs_sbn.rmsdec AS FLOAT64) AS rmsdec",
+            "rmscorr": "CAST(obs_sbn.rmscorr AS FLOAT64) AS rmscorr",
+            "rmsdist": "obs_sbn.rmsdist AS rmsdist",
+            "rmspa": "obs_sbn.rmspa AS rmspa",
+            "delay": "obs_sbn.delay AS delay",
+            "rmsdelay": "obs_sbn.rmsdelay AS rmsdelay",
+            "doppler": "obs_sbn.doppler AS doppler",
+            "rmsdoppler": "obs_sbn.rmsdoppler AS rmsdoppler",
+            # Photometry
+            "astcat": "obs_sbn.astcat AS astcat",
+            "mag": "CAST(obs_sbn.mag AS FLOAT64) AS mag",
+            "rmsmag": "CAST(obs_sbn.rmsmag AS FLOAT64) AS rmsmag",
+            "band": "obs_sbn.band AS band",
+            "fltr": "obs_sbn.fltr AS fltr",
+            "photcat": "obs_sbn.photcat AS photcat",
+            "photap": "obs_sbn.photap AS photap",
+            "nucmag": "obs_sbn.nucmag AS nucmag",
+            "logsnr": "obs_sbn.logsnr AS logsnr",
+            "seeing": "obs_sbn.seeing AS seeing",
+            "exp": "obs_sbn.exp AS exp",
+            "rmsfit": "obs_sbn.rmsfit AS rmsfit",
+            # Misc
+            "com": "obs_sbn.com AS com",
+            "frq": "obs_sbn.frq AS frq",
+            "disc": "obs_sbn.disc AS disc",
+            "subfrm": "obs_sbn.subfrm AS subfrm",
+            "subfmt": "obs_sbn.subfmt AS subfmt",
+            "prectime": "obs_sbn.prectime AS prectime",
+            "precra": "obs_sbn.precra AS precra",
+            "precdec": "obs_sbn.precdec AS precdec",
+            "unctime": "obs_sbn.unctime AS unctime",
+            "notes": "obs_sbn.notes AS notes",
+            "remarks": "obs_sbn.remarks AS remarks",
+            "deprecated": "obs_sbn.deprecated AS deprecated",
+            "localuse": "obs_sbn.localuse AS localuse",
+            "nstars": "obs_sbn.nstars AS nstars",
+            "prev_desig": "obs_sbn.prev_desig AS prev_desig",
+            "prev_ref": "obs_sbn.prev_ref AS prev_ref",
+            "rmstime": "obs_sbn.rmstime AS rmstime",
+            "created_at": "obs_sbn.created_at AS created_at",
+            "updated_at": "obs_sbn.updated_at AS updated_at",
+            "trkmpc": "obs_sbn.trkmpc AS trkmpc",
+            "orbit_id": "obs_sbn.orbit_id AS orbit_id",
+            "designation_asterisk": "obs_sbn.designation_asterisk AS designation_asterisk",
+            "all_pub_ref": "CAST(obs_sbn.all_pub_ref AS STRING) AS all_pub_ref",
+            "shapeocc": "obs_sbn.shapeocc AS shapeocc",
+            "replacesobsid": "obs_sbn.replacesobsid AS replacesobsid",
+            "group_id": "obs_sbn.group_id AS group_id",
+            "datastream_metadata_uuid": "obs_sbn.datastream_metadata.uuid AS datastream_metadata_uuid",
+            "datastream_metadata_source_timestamp": "obs_sbn.datastream_metadata.source_timestamp AS datastream_metadata_source_timestamp",
+            "vel1": "obs_sbn.vel1 AS vel1",
+            "vel2": "obs_sbn.vel2 AS vel2",
+            "vel3": "obs_sbn.vel3 AS vel3",
+        }
+
+
+
+        selected_columns: List[str] = list(include_columns) if include_columns else self.default_columns
+        if exclude_columns:
+            exclude_set = set(exclude_columns)
+            selected_columns = [c for c in selected_columns if c not in exclude_set]
+
+        # Always add requested_provid and primary_designation unless explicitly excluded
+        base_meta = [
+            ("requested_provid", "rp.provid AS requested_provid"),
+            (
+                "primary_designation",
+                "CASE WHEN ni.permid IS NOT NULL THEN ni.permid ELSE ci.unpacked_primary_provisional_designation END AS primary_designation",
+            ),
+        ]
+        select_clauses: List[str] = [expr for name, expr in base_meta if (not exclude_columns or name not in exclude_columns)]
+
+        for col in selected_columns:
+            if col in field_sql:
+                select_clauses.append(field_sql[col])
+
+        select_sql = ",\n            ".join(select_clauses)
+
         query = f"""
         WITH requested_provids AS (
             SELECT provid
             FROM UNNEST(ARRAY[{provids_str}]) AS provid
         )
         SELECT DISTINCT
-            rp.provid AS requested_provid,
-            CASE 
-                WHEN ni.permid IS NOT NULL THEN ni.permid 
-                ELSE ci.unpacked_primary_provisional_designation
-            END AS primary_designation,
-            obs_sbn.obsid, 
-            obs_sbn.trksub, 
-            obs_sbn.permid, 
-            obs_sbn.provid, 
-            obs_sbn.submission_id, 
-            obs_sbn.obssubid, 
-            obs_sbn.obstime, 
-            obs_sbn.ra, 
-            obs_sbn.dec, 
-            obs_sbn.rmsra, 
-            obs_sbn.rmsdec, 
-            obs_sbn.rmscorr,
-            obs_sbn.mag, 
-            obs_sbn.rmsmag, 
-            obs_sbn.band, 
-            obs_sbn.stn, 
-            obs_sbn.updated_at, 
-            obs_sbn.created_at, 
-            obs_sbn.status,
-            obs_sbn.astcat,
-            obs_sbn.mode,
+            {select_sql}
         FROM requested_provids AS rp
         LEFT JOIN `{self.dataset_id}.public_current_identifications` AS ci
             ON ci.unpacked_secondary_provisional_designation = rp.provid
@@ -238,53 +384,53 @@ class BigQueryMPCClient(MPCClient):
             ON ci.unpacked_primary_provisional_designation = obs_sbn.provid
             OR ci_alt.unpacked_secondary_provisional_designation = obs_sbn.provid
             OR ni.permid = obs_sbn.permid
-        ORDER BY requested_provid ASC, obs_sbn.obstime ASC;
+        ORDER BY rp.provid ASC, obs_sbn.obstime ASC;
         """
+
         query_job = self.client.query(query)
         results = query_job.result()
-        table = results.to_arrow(progress_bar_type="tqdm", create_bqstorage_client=True)
+        table = results.to_arrow(progress_bar_type="tqdm", create_bqstorage_client=True).combine_chunks()
 
-        obstime = Time(
-            table["obstime"].to_numpy(zero_copy_only=False),
-            format="datetime64",
-            scale="utc",
-        )
-        created_at = Time(
-            table["created_at"].to_numpy(zero_copy_only=False),
-            format="datetime64",
-            scale="utc",
-        )
-        updated_at = Time(
-            table["updated_at"].to_numpy(zero_copy_only=False),
-            format="datetime64",
-            scale="utc",
-        )
+        kwargs: Dict[str, Any] = {}
 
-        return MPCObservations.from_kwargs(
-            requested_provid=table["requested_provid"],
-            obsid=table["obsid"],
-            primary_designation=table["primary_designation"],
-            trksub=table["trksub"],
-            provid=table["provid"],
-            permid=table["permid"],
-            submission_id=table["submission_id"],
-            obssubid=table["obssubid"],
-            obstime=Timestamp.from_astropy(obstime),
-            ra=table["ra"],
-            dec=table["dec"],
-            rmsra=table["rmsra"],
-            rmsdec=table["rmsdec"],
-            rmscorr=table["rmscorr"],
-            mag=table["mag"],
-            rmsmag=table["rmsmag"],
-            band=table["band"],
-            stn=table["stn"],
-            updated_at=Timestamp.from_astropy(updated_at),
-            created_at=Timestamp.from_astropy(created_at),
-            status=table["status"],
-            astcat=table["astcat"],
-            mode=table["mode"],
-        )
+        # Helper to check presence
+        def has(col: str) -> bool:
+            return col in table.column_names
+
+        # Meta
+        if has("requested_provid"):
+            kwargs["requested_provid"] = table["requested_provid"]
+        if has("primary_designation"):
+            kwargs["primary_designation"] = table["primary_designation"]
+
+        # Timestamp conversions
+        if has("obstime"):
+            obstime = Time(table["obstime"].to_numpy(zero_copy_only=False), format="datetime64", scale="utc")
+            kwargs["obstime"] = Timestamp.from_astropy(obstime)
+        if has("created_at"):
+            created_at = Time(table["created_at"].to_numpy(zero_copy_only=False), format="datetime64", scale="utc")
+            kwargs["created_at"] = Timestamp.from_astropy(created_at)
+        if has("updated_at"):
+            updated_at = Time(table["updated_at"].to_numpy(zero_copy_only=False), format="datetime64", scale="utc")
+            kwargs["updated_at"] = Timestamp.from_astropy(updated_at)
+
+        # Direct pass-through for remaining selected columns present
+        passthrough_columns = [
+            c
+            for c in table.column_names
+            if c
+            not in {
+                "requested_provid",
+                "primary_designation",
+                "obstime",
+                "created_at",
+                "updated_at",
+            }
+        ]
+        for c in passthrough_columns:
+            kwargs[c] = table[c]
+
+        return MPCObservations.from_kwargs(**kwargs)
 
     def all_orbits(self) -> MPCOrbits:
         """
@@ -854,6 +1000,7 @@ class BigQueryMPCClient(MPCClient):
             separation_arcseconds=separation_arcseconds,
             separation_seconds=results["separation_seconds"],
             mpc_observations=MPCObservations.from_kwargs(
+                id=results["id"],
                 obsid=results["obsid"],
                 trksub=results["trksub"],
                 provid=results["provid"],
@@ -913,6 +1060,7 @@ class BigQueryMPCClient(MPCClient):
             b.obsid,
             ST_DISTANCE(a.geo, b.geo) AS separation_meters,
             TIMESTAMP_DIFF(b.obstime, a.obstime, SECOND) AS separation_seconds,
+            b.id,
             b.trksub,
             b.provid,
             b.permid,
@@ -979,6 +1127,7 @@ class BigQueryMPCClient(MPCClient):
             separation_arcseconds=separation_arcseconds,
             separation_seconds=results["separation_seconds"],
             mpc_observations=MPCObservations.from_kwargs(
+                id=results["id"],
                 obsid=results["obsid"],
                 trksub=results["trksub"],
                 provid=results["provid"],
