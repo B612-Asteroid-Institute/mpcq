@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from typing import Any, List
 
 import numpy as np
@@ -6,7 +7,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 from adam_core.observations import ADESObservations
 from adam_core.time import Timestamp
-from astropy.time import Time
+from astropy.time import Time, TimeDelta
 from google.cloud import bigquery
 
 from .observations import CrossMatchedMPCObservations, MPCObservations
@@ -18,6 +19,11 @@ from .submissions import (
 )
 
 METERS_PER_ARCSECONDS = 30.87
+MAX_CROSSMATCH_INPUT_ROWS_PER_QUERY = 500
+
+
+def _escape_sql_string(value: str) -> str:
+    return value.replace("'", "''")
 
 
 class MPCClient(ABC):
@@ -731,102 +737,133 @@ class BigQueryMPCClient(MPCClient):
         # Convert arcseconds to meters at Earth's surface (approximate)
         meters_tolerance = arcseconds_tolerance * METERS_PER_ARCSECONDS
 
-        # Create the STRUCT entries for each observation
-        struct_entries = []
+        input_rows = []
         for obsSubID, obsTime, ra, dec, stn in zip(
             ades_observations.obsSubID.to_numpy(zero_copy_only=False),
-            ades_observations.obsTime.to_astropy().isot,
+            ades_observations.obsTime.to_astropy(),
             ades_observations.ra.to_numpy(zero_copy_only=False),
             ades_observations.dec.to_numpy(zero_copy_only=False),
             ades_observations.stn.to_numpy(zero_copy_only=False),
         ):
-            struct_entries.append(
-                f"STRUCT('{obsSubID}' AS id, '{stn}' AS stn, {ra} AS ra, {dec} AS dec, "
-                f"TIMESTAMP('{obsTime}') AS obstime)"
+            obstime_iso = obsTime.utc.isot
+            input_rows.append(
+                {
+                    "id": str(obsSubID),
+                    "stn": str(stn),
+                    "ra": float(ra),
+                    "dec": float(dec),
+                    "obstime_iso": obstime_iso,
+                    "month_bucket": obstime_iso[:7],
+                }
             )
 
-        struct_str = ",\n        ".join(struct_entries)
-
-        # Match directly against the canonical observations table while bounding
-        # the scan window by station and global time range from the input batch.
-        matching_query = f"""
-        WITH input_observations AS (
-            SELECT 
-                id,
-                stn,
-                ra,
-                dec,
-                obstime,
-                ST_GEOGPOINT(ra, dec) AS input_geo
-            FROM UNNEST([
-                {struct_str}
-            ])
-        ),
-        input_bounds AS (
-            SELECT
-                MIN(obstime) AS min_obstime,
-                MAX(obstime) AS max_obstime
-            FROM input_observations
-        ),
-        candidate_observations AS (
-            SELECT *
-            FROM `{self.dataset_id}.public_obs_sbn` AS obs
-            WHERE obs.stn IN (
-                SELECT DISTINCT stn
-                FROM input_observations
-            )
-            AND obs.obstime BETWEEN
-                (
-                    SELECT TIMESTAMP_SUB(
-                        min_obstime,
-                        INTERVAL {obstime_tolerance_seconds} SECOND
-                    )
-                    FROM input_bounds
-                )
-                AND
-                (
-                    SELECT TIMESTAMP_ADD(
-                        max_obstime,
-                        INTERVAL {obstime_tolerance_seconds} SECOND
-                    )
-                    FROM input_bounds
-                )
-        )
-        SELECT *
-        FROM (
-            SELECT
-                input.id AS input_id,
-                ST_DISTANCE(
-                    ST_GEOGPOINT(obs.ra, obs.dec),
-                    input.input_geo
-                ) AS separation_meters,
-                TIMESTAMP_DIFF(obs.obstime, input.obstime, SECOND) AS separation_seconds,
-                obs.*
-            FROM input_observations AS input
-            JOIN candidate_observations AS obs
-                ON obs.stn = input.stn
-                AND obs.obstime BETWEEN
-                    TIMESTAMP_SUB(
-                        input.obstime,
-                        INTERVAL {obstime_tolerance_seconds} SECOND
-                    )
-                    AND TIMESTAMP_ADD(
-                        input.obstime,
-                        INTERVAL {obstime_tolerance_seconds} SECOND
-                    )
-        ) AS matched
-        WHERE separation_meters <= {meters_tolerance}
-        ORDER BY input_id, separation_meters, separation_seconds
-        """
-
-        results = (
-            self.client.query(matching_query)
-            .result()
-            .to_arrow(progress_bar_type="tqdm", create_bqstorage_client=True)
-        )
-
-        if len(results) == 0:
+        if len(input_rows) == 0:
             return CrossMatchedMPCObservations.empty()
+
+        # Keep bounds tight to preserve partition pruning and prevent a single
+        # wide-spanning request from scanning large historical ranges.
+        bucketed_rows = defaultdict(list)
+        for row in input_rows:
+            bucketed_rows[row["month_bucket"]].append(row)
+
+        result_tables = []
+        for month_key in sorted(bucketed_rows.keys()):
+            month_rows = bucketed_rows[month_key]
+            for start in range(0, len(month_rows), MAX_CROSSMATCH_INPUT_ROWS_PER_QUERY):
+                batch_rows = month_rows[start : start + MAX_CROSSMATCH_INPUT_ROWS_PER_QUERY]
+                min_obstime = min(row["obstime_iso"] for row in batch_rows)
+                max_obstime = max(row["obstime_iso"] for row in batch_rows)
+                min_bound = (
+                    Time(min_obstime, format="isot", scale="utc")
+                    - TimeDelta(obstime_tolerance_seconds, format="sec")
+                ).utc.isot
+                max_bound = (
+                    Time(max_obstime, format="isot", scale="utc")
+                    + TimeDelta(obstime_tolerance_seconds, format="sec")
+                ).utc.isot
+                station_literals = ", ".join(
+                    [
+                        f"'{_escape_sql_string(stn)}'"
+                        for stn in sorted({row["stn"] for row in batch_rows})
+                    ]
+                )
+                struct_entries = [
+                    (
+                        "STRUCT("
+                        f"'{_escape_sql_string(row['id'])}' AS id, "
+                        f"'{_escape_sql_string(row['stn'])}' AS stn, "
+                        f"{row['ra']} AS ra, "
+                        f"{row['dec']} AS dec, "
+                        f"TIMESTAMP('{row['obstime_iso']}') AS obstime"
+                        ")"
+                    )
+                    for row in batch_rows
+                ]
+                struct_str = ",\n                ".join(struct_entries)
+
+                matching_query = f"""
+                WITH input_observations AS (
+                    SELECT
+                        id,
+                        stn,
+                        obstime,
+                        ST_GEOGPOINT(ra, dec) AS input_geo
+                    FROM UNNEST([
+                        {struct_str}
+                    ])
+                )
+                SELECT
+                    input.id AS input_id,
+                    ST_DISTANCE(
+                        ST_GEOGPOINT(CAST(obs.ra AS FLOAT64), CAST(obs.dec AS FLOAT64)),
+                        input.input_geo
+                    ) AS separation_meters,
+                    TIMESTAMP_DIFF(obs.obstime, input.obstime, SECOND) AS separation_seconds,
+                    obs.obsid,
+                    obs.trksub,
+                    obs.provid,
+                    obs.permid,
+                    obs.submission_id,
+                    obs.obssubid,
+                    obs.obstime,
+                    obs.ra,
+                    obs.dec,
+                    obs.rmsra,
+                    obs.rmsdec,
+                    obs.mag,
+                    obs.rmsmag,
+                    obs.band,
+                    obs.stn,
+                    obs.updated_at,
+                    obs.created_at,
+                    obs.status
+                FROM input_observations AS input
+                JOIN `{self.dataset_id}.public_obs_sbn` AS obs
+                    ON obs.stn = input.stn
+                    AND obs.obstime BETWEEN
+                        TIMESTAMP_SUB(input.obstime, INTERVAL {obstime_tolerance_seconds} SECOND)
+                        AND TIMESTAMP_ADD(input.obstime, INTERVAL {obstime_tolerance_seconds} SECOND)
+                WHERE obs.stn IN ({station_literals})
+                    AND obs.obstime BETWEEN TIMESTAMP('{min_bound}') AND TIMESTAMP('{max_bound}')
+                    AND ST_DISTANCE(
+                        ST_GEOGPOINT(CAST(obs.ra AS FLOAT64), CAST(obs.dec AS FLOAT64)),
+                        input.input_geo
+                    ) <= {meters_tolerance}
+                ORDER BY input_id, separation_meters, separation_seconds
+                """
+
+                result_table = (
+                    self.client.query(matching_query)
+                    .result()
+                    .to_arrow(progress_bar_type="tqdm", create_bqstorage_client=True)
+                )
+                if len(result_table) > 0:
+                    result_tables.append(result_table)
+
+        if len(result_tables) == 0:
+            return CrossMatchedMPCObservations.empty()
+
+        results = pa.concat_tables(result_tables) if len(result_tables) > 1 else result_tables[0]
 
         results = results.combine_chunks()
         obstime = Time(
@@ -847,7 +884,7 @@ class BigQueryMPCClient(MPCClient):
 
         separation_arcseconds = (
             results["separation_meters"].to_numpy(zero_copy_only=False)
-            * METERS_PER_ARCSECONDS
+            / METERS_PER_ARCSECONDS
         )
 
         return CrossMatchedMPCObservations.from_kwargs(
