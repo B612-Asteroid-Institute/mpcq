@@ -35,14 +35,14 @@ def test_ades_observations() -> ADESObservations:
 
 
 @pytest.fixture
-def test_dataset_ids() -> tuple[str, str]:
-    return "test_dataset", "test_views_dataset"
+def test_dataset_id() -> str:
+    return "test_dataset"
 
 
 def test_cross_match_observations_empty_result(
     mocker: MockFixture,
     test_ades_observations: ADESObservations,
-    test_dataset_ids: tuple[str, str],
+    test_dataset_id: str,
 ) -> None:
     # Create mock client and query job
     mock_client = mocker.Mock(spec=bigquery.Client)
@@ -60,8 +60,7 @@ def test_cross_match_observations_empty_result(
     # Patch the BigQuery client
     mocker.patch("google.cloud.bigquery.Client", return_value=mock_client)
 
-    dataset_id, views_dataset_id = test_dataset_ids
-    client = BigQueryMPCClient(dataset_id=dataset_id, views_dataset_id=views_dataset_id)
+    client = BigQueryMPCClient(dataset_id=test_dataset_id)
     result = client.cross_match_observations(test_ades_observations)
     assert isinstance(result, CrossMatchedMPCObservations)
     assert len(result) == 0
@@ -70,28 +69,23 @@ def test_cross_match_observations_empty_result(
 def test_cross_match_observations_with_matches(
     mocker: MockFixture,
     test_ades_observations: ADESObservations,
-    test_dataset_ids: tuple[str, str],
+    test_dataset_id: str,
 ) -> None:
     # Create mock client and query job
     mock_client = mocker.Mock(spec=bigquery.Client)
     mock_query_job = mocker.Mock()
 
     # Load test data from parquet files
-    matched_results = pa.parquet.read_table(TEST_DATA_DIR / "matched_results.parquet")
     final_results = pa.parquet.read_table(TEST_DATA_DIR / "final_results.parquet")
 
     # Setup mock to return our test data
-    mock_query_job.result.return_value.to_arrow.side_effect = [
-        matched_results,
-        final_results,
-    ]
+    mock_query_job.result.return_value.to_arrow.return_value = final_results
     mock_client.query.return_value = mock_query_job
 
     # Patch the BigQuery client
     mocker.patch("google.cloud.bigquery.Client", return_value=mock_client)
 
-    dataset_id, views_dataset_id = test_dataset_ids
-    client = BigQueryMPCClient(dataset_id=dataset_id, views_dataset_id=views_dataset_id)
+    client = BigQueryMPCClient(dataset_id=test_dataset_id)
     result = client.cross_match_observations(test_ades_observations)
 
     assert isinstance(result, CrossMatchedMPCObservations)
@@ -103,7 +97,7 @@ def test_cross_match_observations_with_matches(
 
 def test_cross_match_observations_invalid_input(
     mocker: MockFixture,
-    test_dataset_ids: tuple[str, str],
+    test_dataset_id: str,
 ) -> None:
     # Create mock client
     mock_client = mocker.Mock(spec=bigquery.Client)
@@ -121,7 +115,6 @@ def test_cross_match_observations_invalid_input(
         astCat=["test1"],
     )
 
-    dataset_id, views_dataset_id = test_dataset_ids
-    client = BigQueryMPCClient(dataset_id=dataset_id, views_dataset_id=views_dataset_id)
+    client = BigQueryMPCClient(dataset_id=test_dataset_id)
     with pytest.raises(AssertionError):
         client.cross_match_observations(invalid_observations)

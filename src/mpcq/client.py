@@ -171,12 +171,10 @@ class BigQueryMPCClient(MPCClient):
     def __init__(
         self,
         dataset_id: str,
-        views_dataset_id: str,
         **kwargs: Any,
     ) -> None:
         self.client = bigquery.Client(**kwargs)
         self.dataset_id = dataset_id
-        self.views_dataset_id = views_dataset_id
 
     def query_observations(self, provids: List[str]) -> MPCObservations:
         """
@@ -749,7 +747,8 @@ class BigQueryMPCClient(MPCClient):
 
         struct_str = ",\n        ".join(struct_entries)
 
-        # First query to get matches using materialized view
+        # Match directly against the canonical observations table while bounding
+        # the scan window by station and global time range from the input batch.
         matching_query = f"""
         WITH input_observations AS (
             SELECT 
@@ -762,71 +761,73 @@ class BigQueryMPCClient(MPCClient):
             FROM UNNEST([
                 {struct_str}
             ])
+        ),
+        input_bounds AS (
+            SELECT
+                MIN(obstime) AS min_obstime,
+                MAX(obstime) AS max_obstime
+            FROM input_observations
+        ),
+        candidate_observations AS (
+            SELECT *
+            FROM `{self.dataset_id}.public_obs_sbn` AS obs
+            WHERE obs.stn IN (
+                SELECT DISTINCT stn
+                FROM input_observations
+            )
+            AND obs.obstime BETWEEN
+                (
+                    SELECT TIMESTAMP_SUB(
+                        min_obstime,
+                        INTERVAL {obstime_tolerance_seconds} SECOND
+                    )
+                    FROM input_bounds
+                )
+                AND
+                (
+                    SELECT TIMESTAMP_ADD(
+                        max_obstime,
+                        INTERVAL {obstime_tolerance_seconds} SECOND
+                    )
+                    FROM input_bounds
+                )
         )
-        SELECT 
-            input.id AS input_id,
-            clustered.id AS obs_id,
-            ST_DISTANCE(clustered.st_geo, input.input_geo) AS separation_meters,
-            TIMESTAMP_DIFF(clustered.obstime, input.obstime, SECOND) AS separation_seconds
-        FROM input_observations AS input
-        JOIN `{self.views_dataset_id}.public_obs_sbn_clustered` AS clustered
-            ON clustered.stn = input.stn
-            AND clustered.obstime BETWEEN 
-                TIMESTAMP_SUB(input.obstime, INTERVAL {obstime_tolerance_seconds} SECOND)
-                AND TIMESTAMP_ADD(input.obstime, INTERVAL {obstime_tolerance_seconds} SECOND)
-            AND ST_DISTANCE(clustered.st_geo, input.input_geo) <= {meters_tolerance}
+        SELECT *
+        FROM (
+            SELECT
+                input.id AS input_id,
+                ST_DISTANCE(
+                    ST_GEOGPOINT(obs.ra, obs.dec),
+                    input.input_geo
+                ) AS separation_meters,
+                TIMESTAMP_DIFF(obs.obstime, input.obstime, SECOND) AS separation_seconds,
+                obs.*
+            FROM input_observations AS input
+            JOIN candidate_observations AS obs
+                ON obs.stn = input.stn
+                AND obs.obstime BETWEEN
+                    TIMESTAMP_SUB(
+                        input.obstime,
+                        INTERVAL {obstime_tolerance_seconds} SECOND
+                    )
+                    AND TIMESTAMP_ADD(
+                        input.obstime,
+                        INTERVAL {obstime_tolerance_seconds} SECOND
+                    )
+        ) AS matched
+        WHERE separation_meters <= {meters_tolerance}
+        ORDER BY input_id, separation_meters, separation_seconds
         """
 
-        # Get the matched IDs using PyArrow
-        matched_results = (
+        results = (
             self.client.query(matching_query)
             .result()
             .to_arrow(progress_bar_type="tqdm", create_bqstorage_client=True)
         )
 
-        if len(matched_results) == 0:
+        if len(results) == 0:
             return CrossMatchedMPCObservations.empty()
 
-        # Create a query to get the full data using the matched IDs
-        matched_structs = ",".join(
-            [
-                f"STRUCT('{input_id}' as input_id, {obs_id} as obs_id, {separation_meters} as separation_meters, {separation_seconds} as separation_seconds)"
-                for input_id, obs_id, separation_meters, separation_seconds in zip(
-                    matched_results["input_id"].to_numpy(zero_copy_only=False),
-                    matched_results["obs_id"].to_numpy(zero_copy_only=False),
-                    matched_results["separation_meters"].to_numpy(zero_copy_only=False),
-                    matched_results["separation_seconds"].to_numpy(
-                        zero_copy_only=False
-                    ),
-                )
-            ]
-        )
-
-        final_query = f"""
-        WITH matches AS (
-            SELECT * FROM UNNEST([
-                {matched_structs}
-            ])
-        )
-        SELECT 
-            m.input_id,
-            m.separation_meters,
-            m.separation_seconds,
-            obs.*
-        FROM matches m
-        JOIN `{self.dataset_id}.public_obs_sbn` obs
-            ON obs.id = m.obs_id
-        ORDER BY m.input_id, m.separation_meters, m.separation_seconds
-        """
-
-        # Get final results as PyArrow table
-        results = (
-            self.client.query(final_query)
-            .result()
-            .to_arrow(progress_bar_type="tqdm", create_bqstorage_client=True)
-        )
-
-        # Defragment the pyarrow table first
         results = results.combine_chunks()
         obstime = Time(
             results["obstime"].to_numpy(zero_copy_only=False),
