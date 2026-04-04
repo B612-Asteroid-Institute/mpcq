@@ -1,11 +1,12 @@
 import os
+
 import pytest
 from adam_core.observations import ADESObservations
 from adam_core.time import Timestamp
 from astropy.time import Time
 
 from mpcq.client import BigQueryMPCClient, Where
-
+from mpcq.observations import MPCObservations
 
 pytestmark = pytest.mark.integration
 
@@ -16,14 +17,16 @@ if not RUN_IT:
 
 
 DATASET = os.getenv("MPCQ_IT_DATASET", "moeyens-thor-dev.mpcq_it")
-VIEWS_DATASET = os.getenv("MPCQ_IT_VIEWS_DATASET", "moeyens-thor-dev.mpcq_it_views")
 MAX_BYTES = int(os.getenv("MPCQ_IT_MAX_BYTES", "2000000000"))
-BASE_PROVIDS = [p.strip() for p in os.getenv("MPCQ_IT_BASE_PROVIDS", "2025 MW47,2025 PR1,1948 AD,1999 XK100").split(",")]
+BASE_PROVIDS = [
+    p.strip()
+    for p in os.getenv("MPCQ_IT_BASE_PROVIDS", "2025 MW47,2025 PR1,1948 AD,1999 XK100").split(",")
+]
 
 
 @pytest.fixture(scope="session")
 def client() -> BigQueryMPCClient:
-    c = BigQueryMPCClient(dataset_id=DATASET, views_dataset_id=VIEWS_DATASET)
+    c = BigQueryMPCClient(dataset_id=DATASET)
 
     # Wrap query() to enforce per-job bytes cap and caching
     original_query = c.client.query
@@ -33,7 +36,9 @@ def client() -> BigQueryMPCClient:
 
         job_config = job_config or bigquery.QueryJobConfig()
         # Respect existing params while enforcing max bytes and cache
-        job_config.maximum_bytes_billed = getattr(job_config, "maximum_bytes_billed", None) or MAX_BYTES
+        job_config.maximum_bytes_billed = (
+            getattr(job_config, "maximum_bytes_billed", None) or MAX_BYTES
+        )
         job_config.use_query_cache = True
         return original_query(q, job_config=job_config)
 
@@ -59,7 +64,9 @@ def test_query_observations_with_filters_and_subset_columns(client: BigQueryMPCC
             value=(Time("2015-01-01T00:00:00Z"), Time("2035-01-01T00:00:00Z")),
         ),
     ]
-    res = client.query_observations(provids=None, where=where, columns=["obsid", "stn", "obstime"], limit=100)
+    res = client.query_observations(
+        provids=None, where=where, columns=["obsid", "stn", "obstime"], limit=100
+    )
     assert len(res) > 0
     cols = set(res.table.column_names)
     # Required metadata is included by the client
@@ -88,10 +95,9 @@ def test_query_primary_objects(client: BigQueryMPCClient) -> None:
 
 def test_cross_match_smoke(client: BigQueryMPCClient) -> None:
     # Build one synthetic ADES observation near a known observation
-    from google.cloud import bigquery
 
     q = f"""
-    SELECT id, stn, obstime, CAST(ra AS FLOAT64) ra, CAST(dec AS FLOAT64) dec
+    SELECT id, stn, ra, dec, obstime
     FROM `{DATASET}.public_obs_sbn`
     WHERE stn IS NOT NULL AND obstime IS NOT NULL AND ra IS NOT NULL AND dec IS NOT NULL
     ORDER BY obstime DESC
@@ -113,5 +119,3 @@ def test_cross_match_smoke(client: BigQueryMPCClient) -> None:
     )
     res = client.cross_match_observations(ades)
     assert len(res) >= 0  # smoke: runs and returns a table
-
-

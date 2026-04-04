@@ -13,10 +13,7 @@ Query observations for a single object:
     from mpcq.client import BigQueryMPCClient
     import pyarrow.compute as pc
 
-    client = BigQueryMPCClient(
-        dataset_id="your_subscribed_main_dataset_id",
-        views_dataset_id="your_subscribed_views_dataset_id"
-    )
+    client = BigQueryMPCClient(dataset_id="your_subscribed_main_dataset_id")
     
     # Get observations for one or more objects
     observations = client.query_observations(["2013 RR165"])
@@ -36,10 +33,7 @@ Fetch one or more orbits from the MPC:
 
     from mpcq.client import BigQueryMPCClient
 
-    client = BigQueryMPCClient(
-        dataset_id="your_subscribed_main_dataset_id",
-        views_dataset_id="your_subscribed_views_dataset_id"
-    )
+    client = BigQueryMPCClient(dataset_id="your_subscribed_main_dataset_id")
 
     # Fetch orbits for one or more objects
     orbits = client.query_orbits(["2013 RR165", "2024 YR4"])
@@ -71,10 +65,7 @@ Cross-match your observations with the MPC database:
         mode=["CCD", "CCD"],
     )
 
-    client = BigQueryMPCClient(
-        dataset_id="your_subscribed_main_dataset_id",
-        views_dataset_id="your_subscribed_views_dataset_id"
-    )
+    client = BigQueryMPCClient(dataset_id="your_subscribed_main_dataset_id")
 
     # Now you can cross-match the observations
     matched = client.cross_match_observations(input_observations)
@@ -111,5 +102,4 @@ for breaking down which submissions contributed to arc length of number of obser
     history = client.query_submission_history(["2013 RR165"])
 
     print(history.to_dataframe())
-
 

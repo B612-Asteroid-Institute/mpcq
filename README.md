@@ -18,16 +18,15 @@
 
 ## BigQuery Dataset Access
 
-The Asteroid Institute maintains a BigQuery replica of the Minor Planet Center's Small Bodies Node database. The dataset is available through Google Cloud's Analytics Hub and requires subscription to two listings:
+The Asteroid Institute maintains a BigQuery replica of the Minor Planet Center's Small Bodies Node database. The dataset is available through Google Cloud's Analytics Hub:
 
 1. [Main MPC Dataset](https://console.cloud.google.com/bigquery/analytics-hub/exchanges/projects/492788363398/locations/us/dataExchanges/asteroid_institute_mpc_replica_1950545e4f4/listings/asteroid_institute_mpc_replica_1950549970f)
-2. [Clustered Views Dataset](https://console.cloud.google.com/bigquery/analytics-hub/exchanges/projects/492788363398/locations/us/dataExchanges/asteroid_institute_mpc_replica_1950545e4f4/listings/asteroid_institute_mpc_replica_views_195054bbe98)
 
 To access the dataset, you'll need:
 
 1. A Google Cloud Platform account
 2. BigQuery API access enabled
-3. Subscription to both Analytics Hub listings
+3. Subscription to the Analytics Hub listing
 4. Google Cloud credentials configured
 
 Queries will be billed according to your Google Cloud Platform account's BigQuery pricing.
@@ -43,11 +42,8 @@ pip install mpcq
 ```python
 from mpcq.client import BigQueryMPCClient
 
-# Initialize client with your subscribed dataset IDs
-client = BigQueryMPCClient(
-    dataset_id="your_subscribed_main_dataset_id",
-    views_dataset_id="your_subscribed_views_dataset_id"
-)
+# Initialize client with your subscribed dataset ID
+client = BigQueryMPCClient(dataset_id="your_subscribed_main_dataset_id")
 
 # Query observations for a specific object
 observations = client.query_observations(["2013 RR165"])

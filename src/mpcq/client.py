@@ -1,5 +1,7 @@
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from dataclasses import dataclass
+from datetime import date, datetime
 from typing import Any, Iterable, Literal, Sequence
 
 import numpy as np
@@ -7,7 +9,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 from adam_core.observations import ADESObservations
 from adam_core.time import Timestamp
-from astropy.time import Time
+from astropy.time import Time, TimeDelta
 from google.cloud import bigquery
 
 from .observations import CrossMatchedMPCObservations, MPCObservations
@@ -19,6 +21,7 @@ from .submissions import (
 )
 
 METERS_PER_ARCSECONDS = 30.87
+MAX_CROSSMATCH_INPUT_ROWS_PER_QUERY = 500
 
 
 def _iso_utc(col: pa.ChunkedArray) -> list[str]:
@@ -29,6 +32,20 @@ def _iso_utc(col: pa.ChunkedArray) -> list[str]:
     """
     arr = pc.replace_substring(col.cast(pa.string()), " ", "T").combine_chunks()
     return arr.to_pylist()
+
+
+def _escape_sql_string(value: str) -> str:
+    return value.replace("'", "''")
+
+
+def _normalize_string_value(value: Any) -> str:
+    return str(value).strip()
+
+
+def _sql_string_list(values: Sequence[Any]) -> str:
+    return ", ".join(
+        [f"'{_escape_sql_string(_normalize_string_value(value))}'" for value in values]
+    )
 
 
 @dataclass(frozen=True)
@@ -96,7 +113,8 @@ def _build_where_clause(
         if op in {"=", "!=", "<", "<=", ">", ">="}:
             if f.value is None:
                 raise ValueError(f"Operator {f.op} requires a non-null value for {col}")
-            params.append(bigquery.ScalarQueryParameter(pname, None, f.value))
+            ptype, pvalue = _to_bq_param(f.value)
+            params.append(bigquery.ScalarQueryParameter(pname, ptype, pvalue))
             clauses.append(f"{col} {f.op} @{pname}")
             param_index += 1
         elif op == "between":
@@ -104,15 +122,21 @@ def _build_where_clause(
                 raise ValueError("between requires a (low, high) tuple")
             pname1 = f"{param_prefix}{param_index}"
             pname2 = f"{param_prefix}{param_index + 1}"
-            params.append(bigquery.ScalarQueryParameter(pname1, None, f.value[0]))
-            params.append(bigquery.ScalarQueryParameter(pname2, None, f.value[1]))
+            ptype1, pvalue1 = _to_bq_param(f.value[0])
+            ptype2, pvalue2 = _to_bq_param(f.value[1])
+            params.append(bigquery.ScalarQueryParameter(pname1, ptype1, pvalue1))
+            params.append(bigquery.ScalarQueryParameter(pname2, ptype2, pvalue2))
             clauses.append(f"{col} BETWEEN @{pname1} AND @{pname2}")
             param_index += 2
         elif op == "in":
             if not isinstance(f.value, (list, tuple)):
                 raise ValueError("in requires a list/tuple value")
+            if len(f.value) == 0:
+                raise ValueError("in requires a non-empty list/tuple value")
             pname = f"{param_prefix}{param_index}"
-            params.append(bigquery.ArrayQueryParameter(pname, "STRING", list(f.value)))
+            array_type, _ = _to_bq_param(f.value[0])
+            array_values = [_to_bq_param(v)[1] for v in f.value]
+            params.append(bigquery.ArrayQueryParameter(pname, array_type, array_values))
             clauses.append(f"{col} IN UNNEST(@{pname})")
             param_index += 1
         elif op in {"is null", "is not null"}:
@@ -120,7 +144,7 @@ def _build_where_clause(
         elif op in {"startswith", "endswith", "contains"}:
             if f.value is None:
                 raise ValueError(f"Operator {f.op} requires a non-null value for {col}")
-            params.append(bigquery.ScalarQueryParameter(pname, None, f.value))
+            params.append(bigquery.ScalarQueryParameter(pname, "STRING", str(f.value)))
             func = {
                 "startswith": "STARTS_WITH",
                 "endswith": "ENDS_WITH",
@@ -134,7 +158,7 @@ def _build_where_clause(
         elif op in {"istartswith", "iendswith", "icontains"}:
             if f.value is None:
                 raise ValueError(f"Operator {f.op} requires a non-null value for {col}")
-            params.append(bigquery.ScalarQueryParameter(pname, None, str(f.value).lower()))
+            params.append(bigquery.ScalarQueryParameter(pname, "STRING", str(f.value).lower()))
             lowered = f"LOWER(CAST({col} AS STRING))"
             if op == "icontains":
                 clauses.append(f"STRPOS({lowered}, CAST(@{pname} AS STRING)) > 0")
@@ -147,6 +171,22 @@ def _build_where_clause(
             raise ValueError(f"Unsupported operator: {f.op}")
 
     return ("WHERE " + " AND ".join(clauses), params)
+
+
+def _to_bq_param(value: Any) -> tuple[str, Any]:
+    if isinstance(value, Time):
+        return "TIMESTAMP", value.to_datetime()
+    if isinstance(value, datetime):
+        return "TIMESTAMP", value
+    if isinstance(value, date):
+        return "DATE", value
+    if isinstance(value, bool):
+        return "BOOL", value
+    if isinstance(value, int):
+        return "INT64", value
+    if isinstance(value, float):
+        return "FLOAT64", value
+    return "STRING", str(value)
 
 
 class MPCClient(ABC):
@@ -310,12 +350,10 @@ class BigQueryMPCClient(MPCClient):
     def __init__(
         self,
         dataset_id: str,
-        views_dataset_id: str,
         **kwargs: Any,
     ) -> None:
         self.client = bigquery.Client(**kwargs)
         self.dataset_id = dataset_id
-        self.views_dataset_id = views_dataset_id
 
     def query_observations(
         self,
@@ -366,7 +404,10 @@ class BigQueryMPCClient(MPCClient):
         for col in selected_cols:
             if col in {"requested_provid", "primary_designation"}:
                 continue
-            select_list.append(f"obs_sbn.{col}")
+            if col in {"all_pub_ref", "datastream_metadata"}:
+                select_list.append(f"TO_JSON_STRING(obs_sbn.{col}) AS {col}")
+            else:
+                select_list.append(f"obs_sbn.{col}")
 
         select_sql = ",\n            ".join(select_list)
 
@@ -379,7 +420,7 @@ class BigQueryMPCClient(MPCClient):
         order_by = "ORDER BY obs_sbn.obstime ASC"
 
         if provids is not None:
-            provids_str = ", ".join([f'"{id}"' for id in provids])
+            provids_str = _sql_string_list(provids)
             with_requested = f"""
         WITH requested_provids AS (
             SELECT provid
@@ -428,8 +469,12 @@ class BigQueryMPCClient(MPCClient):
         table = results.to_arrow(progress_bar_type="tqdm", create_bqstorage_client=True)
 
         obstime_iso = _iso_utc(table["obstime"]) if "obstime" in table.column_names else None
-        created_at_iso = _iso_utc(table["created_at"]) if "created_at" in table.column_names else None
-        updated_at_iso = _iso_utc(table["updated_at"]) if "updated_at" in table.column_names else None
+        created_at_iso = (
+            _iso_utc(table["created_at"]) if "created_at" in table.column_names else None
+        )
+        updated_at_iso = (
+            _iso_utc(table["updated_at"]) if "updated_at" in table.column_names else None
+        )
 
         # Ensure time-like columns cast when present; fill missing required schema columns
         kwargs: dict[str, Any] = {}
@@ -491,8 +536,12 @@ class BigQueryMPCClient(MPCClient):
 
         table = results.to_arrow(progress_bar_type="tqdm", create_bqstorage_client=True)
 
-        created_at_iso = _iso_utc(table["created_at"]) if "created_at" in table.column_names else None
-        updated_at_iso = _iso_utc(table["updated_at"]) if "updated_at" in table.column_names else None
+        created_at_iso = (
+            _iso_utc(table["created_at"]) if "created_at" in table.column_names else None
+        )
+        updated_at_iso = (
+            _iso_utc(table["updated_at"]) if "updated_at" in table.column_names else None
+        )
         epoch_ts = Timestamp.from_mjd(table["epoch_mjd"], scale="tt")
 
         return MPCOrbits.from_kwargs(
@@ -518,8 +567,12 @@ class BigQueryMPCClient(MPCClient):
             a3=table["a3"],
             h=table["h"],
             g=table["g"],
-            created_at=Timestamp.from_iso8601(created_at_iso, scale="utc") if created_at_iso is not None else None,
-            updated_at=Timestamp.from_iso8601(updated_at_iso, scale="utc") if updated_at_iso is not None else None,
+            created_at=Timestamp.from_iso8601(created_at_iso, scale="utc")
+            if created_at_iso is not None
+            else None,
+            updated_at=Timestamp.from_iso8601(updated_at_iso, scale="utc")
+            if updated_at_iso is not None
+            else None,
         )
 
     def query_orbits(
@@ -572,7 +625,10 @@ class BigQueryMPCClient(MPCClient):
         for col in selected_cols:
             if col in {"requested_provid", "primary_designation", "provid", "epoch"}:
                 continue
-            select_list.append(f"mpc_orbits.{col}")
+            if col in {"mpc_orb_jsonb", "datastream_metadata"}:
+                select_list.append(f"TO_JSON_STRING(mpc_orbits.{col}) AS {col}")
+            else:
+                select_list.append(f"mpc_orbits.{col}")
 
         select_sql = ",\n            ".join(select_list)
 
@@ -583,7 +639,7 @@ class BigQueryMPCClient(MPCClient):
         order_by = "ORDER BY mpc_orbits.epoch_mjd ASC"
 
         if provids is not None:
-            provids_str = ", ".join([f'"{id}"' for id in provids])
+            provids_str = _sql_string_list(provids)
             with_requested = f"""
         WITH requested_provids AS (
             SELECT provid
@@ -633,9 +689,17 @@ class BigQueryMPCClient(MPCClient):
         results = self.client.query(query, job_config=job_config).result()
         table = results.to_arrow(progress_bar_type="tqdm", create_bqstorage_client=True)
 
-        created_at_iso = _iso_utc(table["created_at"]) 
-        updated_at_iso = _iso_utc(table["updated_at"]) 
-        fitting_datetime_iso = _iso_utc(table["fitting_datetime"]) if "fitting_datetime" in table.column_names else None
+        created_at_iso = (
+            _iso_utc(table["created_at"]) if "created_at" in table.column_names else None
+        )
+        updated_at_iso = (
+            _iso_utc(table["updated_at"]) if "updated_at" in table.column_names else None
+        )
+        fitting_datetime_iso = (
+            _iso_utc(table["fitting_datetime"])
+            if "fitting_datetime" in table.column_names
+            else None
+        )
 
         # Handle NULL values in the epoch_mjd column: ideally
         # we should have the Timestamp class be able to handle this
@@ -651,9 +715,15 @@ class BigQueryMPCClient(MPCClient):
                     kwargs[name] = Timestamp.from_iso8601(epoch.isot, scale="tt")
                 elif name in {"created_at", "updated_at", "fitting_datetime"}:
                     if name == "created_at":
-                        kwargs[name] = Timestamp.from_iso8601(created_at_iso, scale="utc")
+                        if created_at_iso is not None:
+                            kwargs[name] = Timestamp.from_iso8601(created_at_iso, scale="utc")
+                        else:
+                            continue
                     elif name == "updated_at":
-                        kwargs[name] = Timestamp.from_iso8601(updated_at_iso, scale="utc")
+                        if updated_at_iso is not None:
+                            kwargs[name] = Timestamp.from_iso8601(updated_at_iso, scale="utc")
+                        else:
+                            continue
                     else:
                         if fitting_datetime_iso is not None:
                             kwargs[name] = Timestamp.from_iso8601(fitting_datetime_iso, scale="utc")
@@ -689,7 +759,7 @@ class BigQueryMPCClient(MPCClient):
         submission_info : MPCSubmissionResults
             The observation status and mapping for the given submission IDs.
         """
-        submission_ids_str = ", ".join([f'"{id}"' for id in submission_ids])
+        submission_ids_str = _sql_string_list(submission_ids)
         query = f"""
         WITH requested_submission_ids AS (
             SELECT submission_id
@@ -738,7 +808,7 @@ class BigQueryMPCClient(MPCClient):
         submission_history : MPCSubmissionHistory
             The submission history for the given provisional designations.
         """
-        provids_str = ", ".join([f'"{id}"' for id in provids])
+        provids_str = _sql_string_list(provids)
         query = f"""
         WITH requested_provids AS (
             SELECT provid
@@ -838,7 +908,7 @@ class BigQueryMPCClient(MPCClient):
         primary_objects : MPCPrimaryObjects
             The primary objects and associated data for the given provisional designations.
         """
-        provids_str = ", ".join([f'"{id}"' for id in provids])
+        provids_str = _sql_string_list(provids)
 
         query = f"""WITH requested_provids AS (
             SELECT provid
@@ -917,103 +987,141 @@ class BigQueryMPCClient(MPCClient):
         # Convert arcseconds to meters at Earth's surface (approximate)
         meters_tolerance = arcseconds_tolerance * METERS_PER_ARCSECONDS
 
-        # Create the STRUCT entries for each observation
-        struct_entries = []
+        input_rows = []
         for obsSubID, obsTime, ra, dec, stn in zip(
             ades_observations.obsSubID.to_numpy(zero_copy_only=False),
-            ades_observations.obsTime.to_astropy().isot,
+            ades_observations.obsTime.to_astropy(),
             ades_observations.ra.to_numpy(zero_copy_only=False),
             ades_observations.dec.to_numpy(zero_copy_only=False),
             ades_observations.stn.to_numpy(zero_copy_only=False),
         ):
-            struct_entries.append(
-                f"STRUCT('{obsSubID}' AS id, '{stn}' AS stn, {ra} AS ra, {dec} AS dec, "
-                f"TIMESTAMP('{obsTime}') AS obstime)"
+            obstime_iso = obsTime.utc.isot
+            input_rows.append(
+                {
+                    "id": _normalize_string_value(obsSubID),
+                    "stn": _normalize_string_value(stn),
+                    "ra": float(ra),
+                    "dec": float(dec),
+                    "obstime_iso": obstime_iso,
+                    "month_bucket": obstime_iso[:7],
+                }
             )
 
-        struct_str = ",\n        ".join(struct_entries)
-
-        # First query to get matches using materialized view
-        matching_query = f"""
-        WITH input_observations AS (
-            SELECT 
-                id,
-                stn,
-                ra,
-                dec,
-                obstime,
-                ST_GEOGPOINT(ra, dec) AS input_geo
-            FROM UNNEST([
-                {struct_str}
-            ])
-        )
-        SELECT 
-            input.id AS input_id,
-            clustered.id AS obs_id,
-            ST_DISTANCE(clustered.st_geo, input.input_geo) AS separation_meters,
-            TIMESTAMP_DIFF(clustered.obstime, input.obstime, SECOND) AS separation_seconds
-        FROM input_observations AS input
-        JOIN `{self.views_dataset_id}.public_obs_sbn_clustered` AS clustered
-            ON clustered.stn = input.stn
-            AND clustered.obstime BETWEEN 
-                TIMESTAMP_SUB(input.obstime, INTERVAL {obstime_tolerance_seconds} SECOND)
-                AND TIMESTAMP_ADD(input.obstime, INTERVAL {obstime_tolerance_seconds} SECOND)
-            AND ST_DISTANCE(clustered.st_geo, input.input_geo) <= {meters_tolerance}
-        """
-
-        # Get the matched IDs using PyArrow
-        matched_results = (
-            self.client.query(matching_query)
-            .result()
-            .to_arrow(progress_bar_type="tqdm", create_bqstorage_client=True)
-        )
-
-        if len(matched_results) == 0:
+        if len(input_rows) == 0:
             return CrossMatchedMPCObservations.empty()
 
-        # Create a query to get the full data using the matched IDs
-        matched_structs = ",".join(
-            [
-                f"STRUCT('{input_id}' as input_id, {obs_id} as obs_id, {separation_meters} as separation_meters, {separation_seconds} as separation_seconds)"
-                for input_id, obs_id, separation_meters, separation_seconds in zip(
-                    matched_results["input_id"].to_numpy(zero_copy_only=False),
-                    matched_results["obs_id"].to_numpy(zero_copy_only=False),
-                    matched_results["separation_meters"].to_numpy(zero_copy_only=False),
-                    matched_results["separation_seconds"].to_numpy(zero_copy_only=False),
+        # Keep bounds tight to preserve partition pruning and prevent a single
+        # wide-spanning request from scanning large historical ranges.
+        bucketed_rows = defaultdict(list)
+        for row in input_rows:
+            bucketed_rows[row["month_bucket"]].append(row)
+
+        result_tables = []
+        for month_key in sorted(bucketed_rows.keys()):
+            month_rows = bucketed_rows[month_key]
+            for start in range(0, len(month_rows), MAX_CROSSMATCH_INPUT_ROWS_PER_QUERY):
+                batch_rows = month_rows[start : start + MAX_CROSSMATCH_INPUT_ROWS_PER_QUERY]
+                min_obstime = min(row["obstime_iso"] for row in batch_rows)
+                max_obstime = max(row["obstime_iso"] for row in batch_rows)
+                min_bound = (
+                    Time(min_obstime, format="isot", scale="utc")
+                    - TimeDelta(obstime_tolerance_seconds, format="sec")
+                ).utc.isot
+                max_bound = (
+                    Time(max_obstime, format="isot", scale="utc")
+                    + TimeDelta(obstime_tolerance_seconds, format="sec")
+                ).utc.isot
+                station_literals = ", ".join(
+                    [
+                        f"'{_escape_sql_string(stn)}'"
+                        for stn in sorted({row["stn"] for row in batch_rows})
+                    ]
                 )
-            ]
-        )
+                struct_entries = [
+                    (
+                        "STRUCT("
+                        f"'{_escape_sql_string(row['id'])}' AS id, "
+                        f"'{_escape_sql_string(row['stn'])}' AS stn, "
+                        f"{row['ra']} AS ra, "
+                        f"{row['dec']} AS dec, "
+                        f"TIMESTAMP('{row['obstime_iso']}') AS obstime"
+                        ")"
+                    )
+                    for row in batch_rows
+                ]
+                struct_str = ",\n                ".join(struct_entries)
 
-        final_query = f"""
-        WITH matches AS (
-            SELECT * FROM UNNEST([
-                {matched_structs}
-            ])
-        )
-        SELECT 
-            m.input_id,
-            m.separation_meters,
-            m.separation_seconds,
-            obs.*
-        FROM matches m
-        JOIN `{self.dataset_id}.public_obs_sbn` obs
-            ON obs.id = m.obs_id
-        ORDER BY m.input_id, m.separation_meters, m.separation_seconds
-        """
+                matching_query = f"""
+                WITH input_observations AS (
+                    SELECT
+                        id,
+                        stn,
+                        obstime,
+                        ST_GEOGPOINT(ra, dec) AS input_geo
+                    FROM UNNEST([
+                        {struct_str}
+                    ])
+                )
+                SELECT
+                    input.id AS input_id,
+                    ST_DISTANCE(
+                        ST_GEOGPOINT(SAFE_CAST(obs.ra AS FLOAT64), SAFE_CAST(obs.dec AS FLOAT64)),
+                        input.input_geo
+                    ) AS separation_meters,
+                    TIMESTAMP_DIFF(obs.obstime, input.obstime, SECOND) AS separation_seconds,
+                    obs.obsid,
+                    obs.trksub,
+                    obs.provid,
+                    obs.permid,
+                    obs.submission_id,
+                    obs.obssubid,
+                    obs.obstime,
+                    obs.ra,
+                    obs.dec,
+                    obs.rmsra,
+                    obs.rmsdec,
+                    obs.mag,
+                    obs.rmsmag,
+                    obs.band,
+                    obs.stn,
+                    obs.updated_at,
+                    obs.created_at,
+                    obs.status
+                FROM input_observations AS input
+                JOIN `{self.dataset_id}.public_obs_sbn` AS obs
+                    ON obs.stn = input.stn
+                    AND obs.obstime BETWEEN
+                        TIMESTAMP_SUB(input.obstime, INTERVAL {obstime_tolerance_seconds} SECOND)
+                        AND TIMESTAMP_ADD(input.obstime, INTERVAL {obstime_tolerance_seconds} SECOND)
+                WHERE obs.stn IN ({station_literals})
+                    AND obs.obstime BETWEEN TIMESTAMP('{min_bound}') AND TIMESTAMP('{max_bound}')
+                    AND ST_DISTANCE(
+                        ST_GEOGPOINT(SAFE_CAST(obs.ra AS FLOAT64), SAFE_CAST(obs.dec AS FLOAT64)),
+                        input.input_geo
+                    ) <= {meters_tolerance}
+                ORDER BY input_id, separation_meters, separation_seconds
+                """
 
-        # Get final results as PyArrow table
-        table = (
-            self.client.query(final_query)
-            .result()
-            .to_arrow(progress_bar_type="tqdm", create_bqstorage_client=True)
-        ).combine_chunks()
+                result_table = (
+                    self.client.query(matching_query)
+                    .result()
+                    .to_arrow(progress_bar_type="tqdm", create_bqstorage_client=True)
+                )
+                if len(result_table) > 0:
+                    result_tables.append(result_table)
+
+        if len(result_tables) == 0:
+            return CrossMatchedMPCObservations.empty()
+
+        table = pa.concat_tables(result_tables) if len(result_tables) > 1 else result_tables[0]
+        table = table.combine_chunks()
 
         obstime_iso = _iso_utc(table["obstime"])
-        created_at_iso = _iso_utc(table["created_at"]) 
-        updated_at_iso = _iso_utc(table["updated_at"]) 
+        created_at_iso = _iso_utc(table["created_at"])
+        updated_at_iso = _iso_utc(table["updated_at"])
 
         separation_arcseconds = (
-            table["separation_meters"].to_numpy(zero_copy_only=False) * METERS_PER_ARCSECONDS
+            table["separation_meters"].to_numpy(zero_copy_only=False) / METERS_PER_ARCSECONDS
         )
 
         return CrossMatchedMPCObservations.from_kwargs(
@@ -1049,6 +1157,7 @@ class BigQueryMPCClient(MPCClient):
         arcseconds_tolerance: float = 2.0,
     ) -> CrossMatchedMPCObservations:
         meters_tolerance = arcseconds_tolerance * METERS_PER_ARCSECONDS
+        provid = _escape_sql_string(_normalize_string_value(provid))
 
         query = f"""
         WITH obs AS (
@@ -1071,7 +1180,7 @@ class BigQueryMPCClient(MPCClient):
                 rmsmag,
                 band,
                 status,
-                ST_GEOGPOINT(CAST(ra AS FLOAT64), CAST(dec AS FLOAT64)) AS geo
+                ST_GEOGPOINT(SAFE_CAST(ra AS FLOAT64), SAFE_CAST(dec AS FLOAT64)) AS geo
             FROM `{self.dataset_id}.public_obs_sbn`
             WHERE provid = '{provid}'
         )

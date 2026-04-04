@@ -11,7 +11,6 @@ Curated Integration Dataset
 The integration dataset lives in your GCP project under:
 
 - ``moeyens-thor-dev.mpcq_it`` (main tables)
-- ``moeyens-thor-dev.mpcq_it_views`` (clustered convenience copy)
 
 Content (populated from production):
 
@@ -28,7 +27,7 @@ Content (populated from production):
 
 - ``public_primary_objects``: the corresponding primary object rows.
 
-- ``mpcq_it_views.public_obs_sbn_clustered``: copy of the integration observations with an added ``st_geo`` column for spatial proximity queries (used by cross-match tests).
+- ``public_obs_sbn`` is queried directly for cross-match tests using bounded station/time windows and spatial distance checks.
 
 Running Integration Tests
 -------------------------
@@ -39,7 +38,6 @@ Environment variables:
 
 - ``MPCQ_RUN_IT=1``: enable integration tests
 - ``MPCQ_IT_DATASET``: BigQuery dataset id for main tables (default: ``moeyens-thor-dev.mpcq_it``)
-- ``MPCQ_IT_VIEWS_DATASET``: BigQuery dataset id for views (default: ``moeyens-thor-dev.mpcq_it_views``)
 - ``MPCQ_IT_MAX_BYTES``: per-job bytes cap (default: ``2000000000`` i.e., 2 GB)
 - ``MPCQ_IT_BASE_PROVIDS``: comma-separated list of base designations to test (default: ``2025 MW47,2025 PR1,1948 AD,1999 XK100``)
 
@@ -49,7 +47,6 @@ Example:
 
    export MPCQ_RUN_IT=1
    export MPCQ_IT_DATASET=moeyens-thor-dev.mpcq_it
-   export MPCQ_IT_VIEWS_DATASET=moeyens-thor-dev.mpcq_it_views
    pytest -m integration -q
 
 What is Tested
@@ -61,12 +58,11 @@ What is Tested
 - ``provids=None`` behavior requiring a ``limit``
 - ``query_orbits`` returns the most recent orbit rows with constructed ``epoch``
 - ``query_primary_objects`` presence
-- ``cross_match_observations`` using the clustered view to identify nearby observations
+- ``cross_match_observations`` against the canonical observations table with partition-pruned filters
 
 Notes
 -----
 
 - To keep costs low, the test fixture wraps BigQuery job configuration with ``maximum_bytes_billed`` and enables query caching by default.
 - These tests require valid Google Cloud authentication in your environment.
-
 
