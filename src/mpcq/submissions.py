@@ -4,7 +4,6 @@ from typing import List
 import pyarrow.compute as pc
 import quivr as qv
 from adam_core.time import Timestamp
-from astropy.time import Time
 
 
 class SubmissionDetails(qv.Table):
@@ -43,9 +42,7 @@ class TrksubMapping(qv.Table):
         """
         assert pc.all(pc.is_in(results.trksub, details.trksub)).as_py()
 
-        unique_submission_details = details.drop_duplicates(
-            ["orbit_id", "trksub", "submission_id"]
-        )
+        unique_submission_details = details.drop_duplicates(["orbit_id", "trksub", "submission_id"])
 
         unique_mappings = results.drop_duplicates(
             ["trksub", "primary_designation", "permid", "provid", "submission_id"]
@@ -140,4 +137,4 @@ def infer_submission_time(
 
         times_isot.append(submission_time)
 
-    return Timestamp.from_astropy(Time(times_isot, format="isot", scale="utc"))
+    return Timestamp.from_iso8601(times_isot, scale="utc")
