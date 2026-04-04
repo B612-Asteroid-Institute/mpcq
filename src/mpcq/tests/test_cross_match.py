@@ -24,7 +24,7 @@ def test_ades_observations() -> ADESObservations:
     )
 
     return ADESObservations.from_kwargs(
-        obsTime=Timestamp.from_astropy(obstime),
+        obsTime=Timestamp.from_iso8601(obstime.utc.isot, scale="utc"),
         ra=[10.0, 10.1, 10.2],
         dec=[20.0, 20.1, 20.2],
         stn=["F51", "F51", "F51"],
@@ -112,7 +112,7 @@ def test_cross_match_observations_invalid_input(
     # Create ADES observations with null obsSubID
     obstime = Time(["2023-01-01T00:00:00"], format="isot", scale="utc")
     invalid_observations = ADESObservations.from_kwargs(
-        obsTime=Timestamp.from_astropy(obstime),
+        obsTime=Timestamp.from_iso8601(obstime.utc.isot, scale="utc"),
         ra=[10.0],
         dec=[20.0],
         stn=["F51"],
