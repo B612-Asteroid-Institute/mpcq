@@ -22,6 +22,116 @@ from .submissions import (
 
 METERS_PER_ARCSECONDS = 30.87
 MAX_CROSSMATCH_INPUT_ROWS_PER_QUERY = 500
+ObservationColumnMode = Literal["minimal", "ades", "full"]
+OrbitColumnMode = Literal["minimal", "full"]
+
+# Small default payload intended for most query/list use cases.
+OBSERVATION_COLUMNS_MINIMAL = [
+    "obsid",
+    "provid",
+    "permid",
+    "obstime",
+    "ra",
+    "dec",
+    "stn",
+    "mag",
+    "band",
+    "status",
+]
+
+# ADES-compatible payload including expanded ADES fields.
+OBSERVATION_COLUMNS_ADES = [
+    "obsid",
+    "obssubid",
+    "trksub",
+    "trkid",
+    "provid",
+    "permid",
+    "submission_id",
+    "submission_block_id",
+    "obs80",
+    "status",
+    "ref",
+    "mode",
+    "stn",
+    "trx",
+    "rcv",
+    "sys",
+    "ctr",
+    "pos1",
+    "pos2",
+    "pos3",
+    "poscov11",
+    "poscov12",
+    "poscov13",
+    "poscov22",
+    "poscov23",
+    "poscov33",
+    "prog",
+    "obstime",
+    "ra",
+    "dec",
+    "rastar",
+    "decstar",
+    "obscenter",
+    "deltara",
+    "deltadec",
+    "dist",
+    "pa",
+    "rmsra",
+    "rmsdec",
+    "rmsdist",
+    "rmspa",
+    "rmscorr",
+    "delay",
+    "rmsdelay",
+    "doppler",
+    "rmsdoppler",
+    "astcat",
+    "mag",
+    "rmsmag",
+    "band",
+    "photcat",
+    "photap",
+    "nucmag",
+    "logsnr",
+    "seeing",
+    "exp",
+    "rmsfit",
+    "com",
+    "frq",
+    "disc",
+    "subfrm",
+    "subfmt",
+    "prectime",
+    "precra",
+    "precdec",
+    "unctime",
+    "notes",
+    "remarks",
+    "deprecated",
+    "localuse",
+    "nstars",
+    "prev_desig",
+    "prev_ref",
+    "rmstime",
+    "trkmpc",
+    "designation_asterisk",
+    "obstime_text",
+]
+
+ORBIT_COLUMNS_MINIMAL = [
+    "provid",
+    "epoch",
+    "q",
+    "e",
+    "i",
+    "node",
+    "argperi",
+    "peri_time",
+    "h",
+    "g",
+]
 
 
 def _iso_utc(col: pa.ChunkedArray) -> list[str]:
@@ -73,11 +183,13 @@ class Where:
 
 
 def _normalize_columns(
-    columns: list[str] | str | None, all_columns: Iterable[str], required: Iterable[str]
+    columns: list[str] | str | None,
+    mode_columns: list[str],
+    all_columns: Iterable[str],
+    required: Iterable[str],
 ) -> list[str]:
     if columns is None:
-        # Default to complete
-        selected = list(all_columns)
+        selected = list(mode_columns)
     elif columns == "*":
         selected = list(all_columns)
     else:
@@ -194,9 +306,11 @@ class MPCClient(ABC):
     def query_observations(
         self,
         provids: list[str] | None = None,
-        columns: list[str] | str | None = "*",
+        columns: list[str] | str | None = None,
+        column_mode: ObservationColumnMode = "minimal",
         where: list[Where] | None = None,
         limit: int | None = None,
+        dedupe: bool = True,
     ) -> MPCObservations:
         """
         Query the MPC database for the observations and associated data for the given
@@ -207,11 +321,15 @@ class MPCClient(ABC):
         provids : List[str] | None
             List of provisional designations to query. Optional.
         columns : list[str] | str | None
-            Select subset of columns or "*" (default) for all.
+            Explicit subset of columns, "*" for full schema, or None to use column_mode.
+        column_mode : Literal["minimal", "ades", "full"]
+            Default column bundle when columns is None.
         where : list[Where] | None
             Additional filters using allowed operators.
         limit : int | None
             Limit the number of rows returned. Required if both provids and where are None.
+        dedupe : bool
+            If True, use SELECT DISTINCT to deduplicate expanded-identifier joins.
 
         Returns
         -------
@@ -221,15 +339,33 @@ class MPCClient(ABC):
         pass
 
     @abstractmethod
-    def query_orbits(self, provids: list[str]) -> MPCOrbits:
+    def query_orbits(
+        self,
+        provids: list[str] | None = None,
+        columns: list[str] | str | None = None,
+        column_mode: OrbitColumnMode = "minimal",
+        where: list[Where] | None = None,
+        limit: int | None = None,
+        dedupe: bool = True,
+    ) -> MPCOrbits:
         """
         Query the MPC database for the orbits and associated data for the given
         provisional designations.
 
         Parameters
         ----------
-        provids : List[str]
-            List of provisional designations to query.
+        provids : List[str] | None
+            List of provisional designations to query. Optional.
+        columns : list[str] | str | None
+            Explicit subset of columns, "*" for full schema, or None to use column_mode.
+        column_mode : Literal["minimal", "full"]
+            Default column bundle when columns is None.
+        where : list[Where] | None
+            Additional filters using allowed operators.
+        limit : int | None
+            Limit the number of rows returned. Required if both provids and where are None.
+        dedupe : bool
+            If True, use SELECT DISTINCT to deduplicate expanded-identifier joins.
 
         Returns
         -------
@@ -358,9 +494,11 @@ class BigQueryMPCClient(MPCClient):
     def query_observations(
         self,
         provids: list[str] | None = None,
-        columns: list[str] | str | None = "*",
+        columns: list[str] | str | None = None,
+        column_mode: ObservationColumnMode = "minimal",
         where: list[Where] | None = None,
         limit: int | None = None,
+        dedupe: bool = True,
     ) -> MPCObservations:
         """
         Query the MPC database for the observations and associated data for the given
@@ -371,11 +509,15 @@ class BigQueryMPCClient(MPCClient):
         provids : List[str] | None
             List of provisional designations to query. Optional.
         columns : list[str] | str | None
-            Select subset of columns or "*" (default) for all.
+            Explicit subset of columns, "*" for full schema, or None to use column_mode.
+        column_mode : Literal["minimal", "ades", "full"]
+            Default column bundle when columns is None.
         where : list[Where] | None
             Additional filters using allowed operators.
         limit : int | None
             Limit the number of rows returned. Required if both provids and where are None.
+        dedupe : bool
+            If True, use SELECT DISTINCT to deduplicate expanded-identifier joins.
 
         Returns
         -------
@@ -386,21 +528,103 @@ class BigQueryMPCClient(MPCClient):
         if provids is None and where is None and limit is None:
             raise ValueError("limit is required when neither provids nor where are provided")
 
-        # Determine valid/required columns
-        all_columns = set(MPCObservations.schema.names)
-        # Exclude nested columns in this table definition
+        all_columns = list(MPCObservations.schema.names)
+        all_column_set = set(all_columns)
         required_cols = ["requested_provid", "primary_designation"]
-        selected_cols = _normalize_columns(columns, all_columns, required_cols)
+        mode_map: dict[ObservationColumnMode, list[str]] = {
+            "minimal": [c for c in OBSERVATION_COLUMNS_MINIMAL if c in all_column_set],
+            "ades": [c for c in OBSERVATION_COLUMNS_ADES if c in all_column_set],
+            "full": list(all_columns),
+        }
+        if column_mode not in mode_map:
+            raise ValueError(f"Unsupported observation column_mode: {column_mode}")
+        selected_cols = _normalize_columns(
+            columns, mode_map[column_mode], all_columns, required_cols
+        )
+
+        # Build optional WHERE
+        where_sql, params = _build_where_clause(where, all_column_set, "p_")
+
+        # Build base query parts
+        with_clause = ""
+        from_clause = ""
+        order_by = "ORDER BY obs_sbn.obstime ASC"
+
+        if provids is not None:
+            provids_str = _sql_string_list(provids)
+            with_clause = f"""
+        WITH requested_provids AS (
+            SELECT provid
+            FROM UNNEST(ARRAY[{provids_str}]) AS provid
+        ),
+        requested_identifiers AS (
+            SELECT
+                rp.provid AS requested_provid,
+                CASE
+                    WHEN ni.permid IS NOT NULL THEN ni.permid
+                    ELSE ci.unpacked_primary_provisional_designation
+                END AS primary_designation,
+                ci.unpacked_primary_provisional_designation AS primary_provid,
+                ci_alt.unpacked_secondary_provisional_designation AS secondary_provid,
+                ni.permid AS numbered_permid
+            FROM requested_provids AS rp
+            LEFT JOIN `{self.dataset_id}.public_current_identifications` AS ci
+                ON ci.unpacked_secondary_provisional_designation = rp.provid
+            LEFT JOIN `{self.dataset_id}.public_current_identifications` AS ci_alt
+                ON ci.unpacked_primary_provisional_designation = ci_alt.unpacked_primary_provisional_designation
+            LEFT JOIN `{self.dataset_id}.public_numbered_identifications` AS ni
+                ON ci.unpacked_primary_provisional_designation = ni.unpacked_primary_provisional_designation
+        ),
+        candidate_matches AS (
+            SELECT
+                ri.requested_provid,
+                ri.primary_designation,
+                obs_sbn.*
+            FROM requested_identifiers AS ri
+            JOIN `{self.dataset_id}.public_obs_sbn` AS obs_sbn
+                ON obs_sbn.provid = ri.primary_provid
+
+            UNION ALL
+
+            SELECT
+                ri.requested_provid,
+                ri.primary_designation,
+                obs_sbn.*
+            FROM requested_identifiers AS ri
+            JOIN `{self.dataset_id}.public_obs_sbn` AS obs_sbn
+                ON obs_sbn.provid = ri.secondary_provid
+
+            UNION ALL
+
+            SELECT
+                ri.requested_provid,
+                ri.primary_designation,
+                obs_sbn.*
+            FROM requested_identifiers AS ri
+            JOIN `{self.dataset_id}.public_obs_sbn` AS obs_sbn
+                ON obs_sbn.permid = ri.numbered_permid
+        )
+            """
+            from_clause = "FROM candidate_matches AS obs_sbn"
+            order_by = "ORDER BY requested_provid ASC, obs_sbn.obstime ASC"
+        else:
+            with_clause = f"""
+        WITH candidate_matches AS (
+            SELECT
+                obs_sbn.provid AS requested_provid,
+                obs_sbn.provid AS primary_designation,
+                obs_sbn.*
+            FROM `{self.dataset_id}.public_obs_sbn` AS obs_sbn
+        )
+            """
+            from_clause = "FROM candidate_matches AS obs_sbn"
 
         # Build SELECT list, prepend metadata
         select_list = []
         if "requested_provid" in selected_cols:
-            select_list.append("rp.provid AS requested_provid")
+            select_list.append("obs_sbn.requested_provid AS requested_provid")
         if "primary_designation" in selected_cols:
-            select_list.append(
-                "CASE WHEN ni.permid IS NOT NULL THEN ni.permid ELSE ci.unpacked_primary_provisional_designation END AS primary_designation"
-            )
-        # Map remaining columns from obs_sbn
+            select_list.append("obs_sbn.primary_designation AS primary_designation")
         for col in selected_cols:
             if col in {"requested_provid", "primary_designation"}:
                 continue
@@ -411,54 +635,14 @@ class BigQueryMPCClient(MPCClient):
 
         select_sql = ",\n            ".join(select_list)
 
-        # Build optional WHERE
-        where_sql, params = _build_where_clause(where, set(MPCObservations.schema.names), "p_")
-
-        # Build base query parts
-        with_requested = ""
-        join_condition = ""
-        order_by = "ORDER BY obs_sbn.obstime ASC"
-
-        if provids is not None:
-            provids_str = _sql_string_list(provids)
-            with_requested = f"""
-        WITH requested_provids AS (
-            SELECT provid
-            FROM UNNEST(ARRAY[{provids_str}]) AS provid
-        )
-            """
-            join_condition = f"""
-        FROM requested_provids AS rp
-        LEFT JOIN `{self.dataset_id}.public_current_identifications` AS ci
-            ON ci.unpacked_secondary_provisional_designation = rp.provid
-        LEFT JOIN `{self.dataset_id}.public_current_identifications` AS ci_alt
-            ON ci.unpacked_primary_provisional_designation = ci_alt.unpacked_primary_provisional_designation
-        LEFT JOIN `{self.dataset_id}.public_numbered_identifications` AS ni
-            ON ci.unpacked_primary_provisional_designation = ni.unpacked_primary_provisional_designation
-        LEFT JOIN `{self.dataset_id}.public_obs_sbn` AS obs_sbn
-            ON ci.unpacked_primary_provisional_designation = obs_sbn.provid
-            OR ci_alt.unpacked_secondary_provisional_designation = obs_sbn.provid
-            OR ni.permid = obs_sbn.permid
-            """
-            order_by = "ORDER BY requested_provid ASC, obs_sbn.obstime ASC"
-        else:
-            # No provids; join only the main table, fabricate requested_provid and primary_designation if asked
-            join_condition = f"""
-        FROM `{self.dataset_id}.public_obs_sbn` AS obs_sbn
-            """
-            if "requested_provid" in selected_cols:
-                select_list[0] = "obs_sbn.provid AS requested_provid"
-            if "primary_designation" in selected_cols:
-                select_list[1] = "obs_sbn.provid AS primary_designation"
-            select_sql = ",\n            ".join(select_list)
-
         limit_sql = f"LIMIT {int(limit)}" if limit is not None else ""
+        select_keyword = "SELECT DISTINCT" if dedupe else "SELECT"
 
         query = f"""
-        {with_requested}
-        SELECT DISTINCT
+        {with_clause}
+        {select_keyword}
             {select_sql}
-        {join_condition}
+        {from_clause}
         {where_sql}
         {order_by}
         {limit_sql};
@@ -578,9 +762,11 @@ class BigQueryMPCClient(MPCClient):
     def query_orbits(
         self,
         provids: list[str] | None = None,
-        columns: list[str] | str | None = "*",
+        columns: list[str] | str | None = None,
+        column_mode: OrbitColumnMode = "minimal",
         where: list[Where] | None = None,
         limit: int | None = None,
+        dedupe: bool = True,
     ) -> MPCOrbits:
         """
         Query the MPC database for the orbits and associated data for the given
@@ -591,11 +777,15 @@ class BigQueryMPCClient(MPCClient):
         provids : List[str] | None
             List of provisional designations to query. Optional.
         columns : list[str] | str | None
-            Select subset of columns or "*" (default) for all.
+            Explicit subset of columns, "*" for full schema, or None to use column_mode.
+        column_mode : Literal["minimal", "full"]
+            Default column bundle when columns is None.
         where : list[Where] | None
             Additional filters using allowed operators.
         limit : int | None
             Limit the number of rows returned. Required if both provids and where are None.
+        dedupe : bool
+            If True, use SELECT DISTINCT to deduplicate expanded-identifier joins.
 
         Returns
         -------
@@ -605,9 +795,18 @@ class BigQueryMPCClient(MPCClient):
         if provids is None and where is None and limit is None:
             raise ValueError("limit is required when neither provids nor where are provided")
 
-        all_columns = set(MPCOrbits.schema.names)
+        all_columns = list(MPCOrbits.schema.names)
+        all_column_set = set(all_columns)
         required_cols = ["requested_provid", "primary_designation", "provid", "epoch"]
-        selected_cols = _normalize_columns(columns, all_columns, required_cols)
+        mode_map: dict[OrbitColumnMode, list[str]] = {
+            "minimal": [c for c in ORBIT_COLUMNS_MINIMAL if c in all_column_set],
+            "full": list(all_columns),
+        }
+        if column_mode not in mode_map:
+            raise ValueError(f"Unsupported orbit column_mode: {column_mode}")
+        selected_cols = _normalize_columns(
+            columns, mode_map[column_mode], all_columns, required_cols
+        )
 
         select_list = []
         if "requested_provid" in selected_cols:
@@ -632,7 +831,7 @@ class BigQueryMPCClient(MPCClient):
 
         select_sql = ",\n            ".join(select_list)
 
-        where_sql, params = _build_where_clause(where, set(MPCOrbits.schema.names), "o_")
+        where_sql, params = _build_where_clause(where, all_column_set, "o_")
 
         with_requested = ""
         join_condition = ""
@@ -674,10 +873,11 @@ class BigQueryMPCClient(MPCClient):
             select_sql = ",\n            ".join(select_list)
 
         limit_sql = f"LIMIT {int(limit)}" if limit is not None else ""
+        select_keyword = "SELECT DISTINCT" if dedupe else "SELECT"
 
         query = f"""
         {with_requested}
-        SELECT DISTINCT 
+        {select_keyword}
             {select_sql}
         {join_condition}
         {where_sql}
@@ -813,28 +1013,68 @@ class BigQueryMPCClient(MPCClient):
         WITH requested_provids AS (
             SELECT provid
             FROM UNNEST(ARRAY[{provids_str}]) AS provid
+        ),
+        requested_identifiers AS (
+            SELECT
+                rp.provid AS requested_provid,
+                CASE
+                    WHEN ni.permid IS NOT NULL THEN ni.permid
+                    ELSE ci.unpacked_primary_provisional_designation
+                END AS primary_designation,
+                ci.unpacked_primary_provisional_designation AS primary_provid,
+                ci_alt.unpacked_secondary_provisional_designation AS secondary_provid,
+                ni.permid AS numbered_permid
+            FROM requested_provids AS rp
+            LEFT JOIN `{self.dataset_id}.public_current_identifications` AS ci
+                ON ci.unpacked_secondary_provisional_designation = rp.provid
+            LEFT JOIN `{self.dataset_id}.public_current_identifications` AS ci_alt
+                ON ci.unpacked_primary_provisional_designation = ci_alt.unpacked_primary_provisional_designation
+            LEFT JOIN `{self.dataset_id}.public_numbered_identifications` AS ni
+                ON ci.unpacked_primary_provisional_designation = ni.unpacked_primary_provisional_designation
+        ),
+        candidate_obs AS (
+            SELECT
+                ri.requested_provid,
+                ri.primary_designation,
+                obs_sbn.obsid,
+                obs_sbn.obstime,
+                obs_sbn.submission_id
+            FROM requested_identifiers AS ri
+            JOIN `{self.dataset_id}.public_obs_sbn` AS obs_sbn
+                ON obs_sbn.provid = ri.primary_provid
+
+            UNION ALL
+
+            SELECT
+                ri.requested_provid,
+                ri.primary_designation,
+                obs_sbn.obsid,
+                obs_sbn.obstime,
+                obs_sbn.submission_id
+            FROM requested_identifiers AS ri
+            JOIN `{self.dataset_id}.public_obs_sbn` AS obs_sbn
+                ON obs_sbn.provid = ri.secondary_provid
+
+            UNION ALL
+
+            SELECT
+                ri.requested_provid,
+                ri.primary_designation,
+                obs_sbn.obsid,
+                obs_sbn.obstime,
+                obs_sbn.submission_id
+            FROM requested_identifiers AS ri
+            JOIN `{self.dataset_id}.public_obs_sbn` AS obs_sbn
+                ON obs_sbn.permid = ri.numbered_permid
         )
         SELECT DISTINCT
-            rp.provid AS requested_provid,
-            CASE 
-                WHEN ni.permid IS NOT NULL THEN ni.permid 
-                ELSE ci.unpacked_primary_provisional_designation
-            END AS primary_designation,
-            obs_sbn.obsid, 
-            obs_sbn.obstime,
-            obs_sbn.submission_id
-        FROM requested_provids AS rp 
-        LEFT JOIN `{self.dataset_id}.public_current_identifications` AS ci
-            ON ci.unpacked_secondary_provisional_designation = rp.provid
-        LEFT JOIN `{self.dataset_id}.public_current_identifications` AS ci_alt
-            ON ci.unpacked_primary_provisional_designation = ci_alt.unpacked_primary_provisional_designation
-        LEFT JOIN `{self.dataset_id}.public_numbered_identifications` AS ni
-            ON ci.unpacked_primary_provisional_designation = ni.unpacked_primary_provisional_designation
-        LEFT JOIN `{self.dataset_id}.public_obs_sbn` AS obs_sbn
-            ON ci.unpacked_primary_provisional_designation = obs_sbn.provid
-            OR ci_alt.unpacked_secondary_provisional_designation = obs_sbn.provid
-            OR ni.permid = obs_sbn.permid
-        ORDER BY requested_provid ASC, obs_sbn.obstime ASC;
+            requested_provid,
+            primary_designation,
+            obsid,
+            obstime,
+            submission_id
+        FROM candidate_obs
+        ORDER BY requested_provid ASC, obstime ASC;
         """
         query_job = self.client.query(query)
         results = query_job.result()
@@ -986,6 +1226,7 @@ class BigQueryMPCClient(MPCClient):
 
         # Convert arcseconds to meters at Earth's surface (approximate)
         meters_tolerance = arcseconds_tolerance * METERS_PER_ARCSECONDS
+        coarse_dec_tolerance_deg = arcseconds_tolerance / 3600.0
 
         input_rows = []
         for obsSubID, obsTime, ra, dec, stn in zip(
@@ -1056,18 +1297,44 @@ class BigQueryMPCClient(MPCClient):
                     SELECT
                         id,
                         stn,
+                        ra,
+                        dec,
                         obstime,
                         ST_GEOGPOINT(ra, dec) AS input_geo
                     FROM UNNEST([
                         {struct_str}
                     ])
+                ),
+                candidate_observations AS (
+                    SELECT
+                        obs.obsid,
+                        obs.trksub,
+                        obs.provid,
+                        obs.permid,
+                        obs.submission_id,
+                        obs.obssubid,
+                        obs.obstime,
+                        obs.ra,
+                        obs.dec,
+                        obs.rmsra,
+                        obs.rmsdec,
+                        obs.mag,
+                        obs.rmsmag,
+                        obs.band,
+                        obs.stn,
+                        obs.updated_at,
+                        obs.created_at,
+                        obs.status,
+                        SAFE_CAST(obs.ra AS FLOAT64) AS ra_f64,
+                        SAFE_CAST(obs.dec AS FLOAT64) AS dec_f64,
+                        ST_GEOGPOINT(SAFE_CAST(obs.ra AS FLOAT64), SAFE_CAST(obs.dec AS FLOAT64)) AS obs_geo
+                    FROM `{self.dataset_id}.public_obs_sbn` AS obs
+                    WHERE obs.stn IN ({station_literals})
+                      AND obs.obstime BETWEEN TIMESTAMP('{min_bound}') AND TIMESTAMP('{max_bound}')
                 )
                 SELECT
                     input.id AS input_id,
-                    ST_DISTANCE(
-                        ST_GEOGPOINT(SAFE_CAST(obs.ra AS FLOAT64), SAFE_CAST(obs.dec AS FLOAT64)),
-                        input.input_geo
-                    ) AS separation_meters,
+                    ST_DISTANCE(obs.obs_geo, input.input_geo) AS separation_meters,
                     TIMESTAMP_DIFF(obs.obstime, input.obstime, SECOND) AS separation_seconds,
                     obs.obsid,
                     obs.trksub,
@@ -1088,17 +1355,17 @@ class BigQueryMPCClient(MPCClient):
                     obs.created_at,
                     obs.status
                 FROM input_observations AS input
-                JOIN `{self.dataset_id}.public_obs_sbn` AS obs
+                JOIN candidate_observations AS obs
                     ON obs.stn = input.stn
+                    AND obs.obs_geo IS NOT NULL
                     AND obs.obstime BETWEEN
                         TIMESTAMP_SUB(input.obstime, INTERVAL {obstime_tolerance_seconds} SECOND)
                         AND TIMESTAMP_ADD(input.obstime, INTERVAL {obstime_tolerance_seconds} SECOND)
-                WHERE obs.stn IN ({station_literals})
-                    AND obs.obstime BETWEEN TIMESTAMP('{min_bound}') AND TIMESTAMP('{max_bound}')
-                    AND ST_DISTANCE(
-                        ST_GEOGPOINT(SAFE_CAST(obs.ra AS FLOAT64), SAFE_CAST(obs.dec AS FLOAT64)),
-                        input.input_geo
-                    ) <= {meters_tolerance}
+                    AND obs.dec_f64 BETWEEN input.dec - {coarse_dec_tolerance_deg} AND input.dec + {coarse_dec_tolerance_deg}
+                    AND obs.ra_f64 BETWEEN
+                        input.ra - ({coarse_dec_tolerance_deg} / GREATEST(0.1, COS(input.dec * ACOS(-1) / 180.0)))
+                        AND input.ra + ({coarse_dec_tolerance_deg} / GREATEST(0.1, COS(input.dec * ACOS(-1) / 180.0)))
+                WHERE ST_DISTANCE(obs.obs_geo, input.input_geo) <= {meters_tolerance}
                 ORDER BY input_id, separation_meters, separation_seconds
                 """
 
@@ -1157,6 +1424,7 @@ class BigQueryMPCClient(MPCClient):
         arcseconds_tolerance: float = 2.0,
     ) -> CrossMatchedMPCObservations:
         meters_tolerance = arcseconds_tolerance * METERS_PER_ARCSECONDS
+        coarse_dec_tolerance_deg = arcseconds_tolerance / 3600.0
         provid = _escape_sql_string(_normalize_string_value(provid))
 
         query = f"""
@@ -1180,6 +1448,8 @@ class BigQueryMPCClient(MPCClient):
                 rmsmag,
                 band,
                 status,
+                SAFE_CAST(ra AS FLOAT64) AS ra_f64,
+                SAFE_CAST(dec AS FLOAT64) AS dec_f64,
                 ST_GEOGPOINT(SAFE_CAST(ra AS FLOAT64), SAFE_CAST(dec AS FLOAT64)) AS geo
             FROM `{self.dataset_id}.public_obs_sbn`
             WHERE provid = '{provid}'
@@ -1210,9 +1480,15 @@ class BigQueryMPCClient(MPCClient):
         JOIN obs b
             ON b.stn = a.stn  -- Same station
             AND a.obsid < b.obsid  -- Avoid self-matches and duplicates
+            AND a.geo IS NOT NULL
+            AND b.geo IS NOT NULL
             AND b.obstime BETWEEN 
                 TIMESTAMP_SUB(a.obstime, INTERVAL {obstime_tolerance_seconds} SECOND)
                 AND TIMESTAMP_ADD(a.obstime, INTERVAL {obstime_tolerance_seconds} SECOND)
+            AND b.dec_f64 BETWEEN a.dec_f64 - {coarse_dec_tolerance_deg} AND a.dec_f64 + {coarse_dec_tolerance_deg}
+            AND b.ra_f64 BETWEEN
+                a.ra_f64 - ({coarse_dec_tolerance_deg} / GREATEST(0.1, COS(a.dec_f64 * ACOS(-1) / 180.0)))
+                AND a.ra_f64 + ({coarse_dec_tolerance_deg} / GREATEST(0.1, COS(a.dec_f64 * ACOS(-1) / 180.0)))
             AND ST_DISTANCE(a.geo, b.geo) <= {meters_tolerance}
         ORDER BY a.obsid, separation_meters
         """

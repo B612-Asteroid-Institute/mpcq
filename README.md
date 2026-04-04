@@ -48,6 +48,13 @@ client = BigQueryMPCClient(dataset_id="your_subscribed_main_dataset_id")
 # Query observations for a specific object
 observations = client.query_observations(["2013 RR165"])
 
+# Use an ADES-compatible observation payload (expanded ADES fields)
+ades_observations = client.query_observations(
+    ["2013 RR165"],
+    column_mode="ades",
+    limit=1000,
+)
+
 # Convert to pandas DataFrame for analysis
 from mpcq.utils import observations_to_dataframe
 df = observations_to_dataframe(observations)

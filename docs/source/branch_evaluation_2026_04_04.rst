@@ -123,3 +123,60 @@ Decision
 
 It combines the replica/schema/API improvements with the no-views operational model, and fixes the live-query regressions present in ``update``.
 
+
+Optimization Addendum (Column Modes + Join/Geo Tuning)
+-------------------------------------------------------
+
+Additional optimization pass on the combined branch implemented:
+
+- default observation/orbit payload modes changed to ``minimal``
+- observation ``column_mode="ades"`` added for ADES-compatible expanded payloads
+- optional ``dedupe`` switch added to observation/orbit query methods
+- OR-heavy observation/submission-history identifier joins replaced with unionized join paths
+- cross-match and duplicate queries now precompute geographies and apply coarse RA/DEC prefilters before final distance checks
+
+Dry-run bytes after this pass:
+
+Dataset: ``moeyens-thor-dev.mpc_sbn_aurora``
+
++-------------------------------+-------------------+
+| Scenario                      | Bytes Processed   |
++===============================+===================+
+| observations (default/minimal)| 44,434,629,385    |
++-------------------------------+-------------------+
+| observations (ADES mode)      | 189,442,507,919   |
++-------------------------------+-------------------+
+| observations (full mode)      | 231,608,922,917   |
++-------------------------------+-------------------+
+| observations (subset + where) | 26,339,922,836    |
++-------------------------------+-------------------+
+| orbits (default/minimal)      | 189,670,621       |
++-------------------------------+-------------------+
+| orbits (full mode)            | 2,344,037,730     |
++-------------------------------+-------------------+
+| cross_match_observations      | 106,968,493       |
++-------------------------------+-------------------+
+| find_duplicates               | 77,654,737,885    |
++-------------------------------+-------------------+
+
+Dataset: ``moeyens-thor-dev.mpcq_it``
+
++-------------------------------+-------------------+
+| Scenario                      | Bytes Processed   |
++===============================+===================+
+| observations (default/minimal)| 1,513,210         |
++-------------------------------+-------------------+
+| observations (ADES mode)      | 7,985,065         |
++-------------------------------+-------------------+
+| observations (full mode)      | 9,464,881         |
++-------------------------------+-------------------+
+| observations (subset + where) | 878,039           |
++-------------------------------+-------------------+
+| orbits (default/minimal)      | 563               |
++-------------------------------+-------------------+
+| orbits (full mode)            | 6,177             |
++-------------------------------+-------------------+
+| cross_match_observations      | 2,839,175         |
++-------------------------------+-------------------+
+| find_duplicates               | 2,839,175         |
++-------------------------------+-------------------+

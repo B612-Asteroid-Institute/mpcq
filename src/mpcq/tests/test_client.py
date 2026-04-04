@@ -53,3 +53,45 @@ def test_normalize_string_value_strips_padding() -> None:
 def test_sql_string_list_normalizes_and_escapes() -> None:
     values = [" 29P ", "O'Brien", "  071  "]
     assert _sql_string_list(values) == "'29P', 'O''Brien', '071'"
+
+
+def test_query_observations_default_mode_is_minimal(mocker: MockFixture) -> None:
+    mock_client = mocker.Mock(spec=bigquery.Client)
+    mock_client.query.side_effect = RuntimeError("stop")
+    mocker.patch("google.cloud.bigquery.Client", return_value=mock_client)
+
+    client = BigQueryMPCClient(dataset_id="test_dataset")
+    with pytest.raises(RuntimeError, match="stop"):
+        client.query_observations(provids=["2013 RR165"], limit=100)
+
+    query = mock_client.query.call_args.args[0]
+    assert "SELECT DISTINCT" in query
+    assert "obs_sbn.obsid" in query
+    assert "obs_sbn.obstime" in query
+    assert "obs_sbn.ra" in query
+    assert "obs_sbn.dec" in query
+    assert "obs_sbn.mag" in query
+    assert "obs_sbn.notes" not in query
+    assert "obs_sbn.poscov11" not in query
+
+
+def test_query_observations_ades_mode_includes_expanded_columns(mocker: MockFixture) -> None:
+    mock_client = mocker.Mock(spec=bigquery.Client)
+    mock_client.query.side_effect = RuntimeError("stop")
+    mocker.patch("google.cloud.bigquery.Client", return_value=mock_client)
+
+    client = BigQueryMPCClient(dataset_id="test_dataset")
+    with pytest.raises(RuntimeError, match="stop"):
+        client.query_observations(
+            provids=["2013 RR165"],
+            column_mode="ades",
+            dedupe=False,
+            limit=100,
+        )
+
+    query = mock_client.query.call_args.args[0]
+    assert "SELECT DISTINCT" not in query
+    assert "SELECT" in query
+    assert "obs_sbn.poscov11" in query
+    assert "obs_sbn.notes" in query
+    assert "obs_sbn.obstime_text" in query

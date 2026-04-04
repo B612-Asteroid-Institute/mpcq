@@ -17,6 +17,16 @@ Query observations for a single object:
     
     # Get observations for one or more objects
     observations = client.query_observations(["2013 RR165"])
+
+    # Choose a default payload mode:
+    # - "minimal" (default): small payload
+    # - "ades": ADES-compatible, expanded ADES fields
+    # - "full": all available replica columns
+    ades_observations = client.query_observations(
+        ["2013 RR165"],
+        column_mode="ades",
+        limit=1000,
+    )
     
     # Basic analysis
     print(f"Number of observations: {len(observations)}")
@@ -102,4 +112,3 @@ for breaking down which submissions contributed to arc length of number of obser
     history = client.query_submission_history(["2013 RR165"])
 
     print(history.to_dataframe())
-
