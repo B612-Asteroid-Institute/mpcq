@@ -107,3 +107,8 @@ known-first-party = ["mpcq"]
 
 [tool.mypy]
 ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: marks tests that require live BigQuery access",
+]
