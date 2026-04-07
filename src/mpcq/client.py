@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any, Iterable, Literal, Sequence
+from typing import Any, Iterable, Literal, Sequence, cast
 
 import numpy as np
 import pyarrow as pa
@@ -141,7 +141,7 @@ def _iso_utc(col: pa.ChunkedArray) -> list[str]:
     'YYYY-MM-DD HH:MM:SS.ffffffZ'. Replace the space with 'T' for ISO-8601.
     """
     arr = pc.replace_substring(col.cast(pa.string()), " ", "T").combine_chunks()
-    return arr.to_pylist()
+    return cast(list[str], arr.to_pylist())
 
 
 def _escape_sql_string(value: str) -> str:
@@ -206,7 +206,10 @@ def _build_where_clause(
     filters: list[Where] | None,
     valid_columns: set[str],
     param_prefix: str,
-):
+) -> tuple[
+    str,
+    list[bigquery.ScalarQueryParameter | bigquery.ArrayQueryParameter],
+]:
     if not filters:
         return "", []
 
