@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any, Iterable, Literal, Sequence, cast
+from typing import Any, Iterable, Literal, Sequence, cast, no_type_check
 
 import numpy as np
 import pyarrow as pa
@@ -142,6 +142,11 @@ def _iso_utc(col: pa.ChunkedArray) -> list[str]:
     """
     arr = pc.replace_substring(col.cast(pa.string()), " ", "T").combine_chunks()
     return cast(list[str], arr.to_pylist())
+
+
+@no_type_check
+def _mask_nonfinite(values: Any) -> Any:
+    return np.ma.masked_array(values, mask=np.isnan(values))
 
 
 def _escape_sql_string(value: str) -> str:
@@ -907,7 +912,7 @@ class BigQueryMPCClient(MPCClient):
         # Handle NULL values in the epoch_mjd column: ideally
         # we should have the Timestamp class be able to handle this
         mjd_array = table["epoch_mjd"].to_numpy(zero_copy_only=False)
-        mjds = np.ma.masked_array(mjd_array, mask=np.isnan(mjd_array))  # type: ignore
+        mjds = _mask_nonfinite(mjd_array)
         epoch = Time(mjds, format="mjd", scale="tt")
 
         # Build kwargs dynamically
