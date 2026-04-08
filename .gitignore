@@ -6,3 +6,5 @@ dist/
 *__pycache__*
 .vscode/*
 .pdm-python
+src/mpcq/_version.py
+src/src/
