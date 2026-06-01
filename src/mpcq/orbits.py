@@ -2,6 +2,7 @@ import numpy as np
 import pyarrow as pa
 import quivr as qv
 from adam_core.coordinates import CometaryCoordinates, CoordinateCovariances, Origin
+from adam_core.orbits.non_gravitational_parameters import NonGravitationalParameters
 from adam_core.orbits import Orbits
 from adam_core.time import Timestamp
 
@@ -81,6 +82,65 @@ class MPCOrbits(qv.Table):
         orbits : Orbits
             The orbits and associated data for the given provisional designations.
         """
+        def _nongrav_columns() -> NonGravitationalParameters:
+            a1 = self.a1.to_pylist()
+            a2 = self.a2.to_pylist()
+            a3 = self.a3.to_pylist()
+
+            models = []
+            parameter_counts = []
+            estimated_names = []
+            solution_dimensions = []
+            for a1_i, a2_i, a3_i in zip(a1, a2, a3):
+                names = []
+                if a1_i is not None:
+                    names.append("A1")
+                if a2_i is not None:
+                    names.append("A2")
+                if a3_i is not None:
+                    names.append("A3")
+                if names:
+                    models.append("nongrav")
+                    parameter_counts.append(len(names))
+                    estimated_names.append(",".join(names))
+                    solution_dimensions.append(6 + len(names))
+                else:
+                    models.append(None)
+                    parameter_counts.append(None)
+                    estimated_names.append(None)
+                    solution_dimensions.append(None)
+
+            nulls = [None] * len(self)
+            return NonGravitationalParameters.from_kwargs(
+                source=["MPCQ"] * len(self),
+                model=models,
+                solution_dimension=solution_dimensions,
+                parameter_count=parameter_counts,
+                estimated_parameter_names=estimated_names,
+                A1=a1,
+                A1_sigma=nulls,
+                A2=a2,
+                A2_sigma=nulls,
+                A3=a3,
+                A3_sigma=nulls,
+                DT=nulls,
+                DT_sigma=nulls,
+                R0=nulls,
+                R0_sigma=nulls,
+                ALN=nulls,
+                ALN_sigma=nulls,
+                NK=nulls,
+                NK_sigma=nulls,
+                NM=nulls,
+                NM_sigma=nulls,
+                NN=nulls,
+                NN_sigma=nulls,
+                AMRAT=nulls,
+                AMRAT_sigma=nulls,
+                RHO=nulls,
+                RHO_sigma=nulls,
+            )
+
         covariances = CoordinateCovariances.from_sigmas(
             np.array(
                 self.table.select(
@@ -116,6 +176,7 @@ class MPCOrbits(qv.Table):
         orbits = Orbits.from_kwargs(
             orbit_id=self.id,
             object_id=self.provid,
+            non_gravitational_parameters=_nongrav_columns(),
             coordinates=CometaryCoordinates.from_kwargs(
                 q=self.q,
                 e=self.e,
