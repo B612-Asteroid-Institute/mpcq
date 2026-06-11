@@ -2,8 +2,8 @@ import numpy as np
 import pyarrow as pa
 import quivr as qv
 from adam_core.coordinates import CometaryCoordinates, CoordinateCovariances, Origin
-from adam_core.orbits.non_gravitational_parameters import NonGravitationalParameters
 from adam_core.orbits import Orbits
+from adam_core.orbits.non_gravitational_parameters import NonGravitationalParameters
 from adam_core.time import Timestamp
 
 
@@ -86,7 +86,11 @@ class MPCOrbits(qv.Table):
             a1 = self.a1.to_pylist()
             a2 = self.a2.to_pylist()
             a3 = self.a3.to_pylist()
+            a1_unc = self.a1_unc.to_pylist()
+            a2_unc = self.a2_unc.to_pylist()
+            a3_unc = self.a3_unc.to_pylist()
 
+            sources = []
             models = []
             parameter_counts = []
             estimated_names = []
@@ -100,11 +104,15 @@ class MPCOrbits(qv.Table):
                 if a3_i is not None:
                     names.append("A3")
                 if names:
+                    sources.append("MPCQ")
                     models.append("nongrav")
                     parameter_counts.append(len(names))
                     estimated_names.append(",".join(names))
                     solution_dimensions.append(6 + len(names))
                 else:
+                    # Rows without non-grav values stay fully null, matching
+                    # the SBDB/NEOCC importers in adam_core.
+                    sources.append(None)
                     models.append(None)
                     parameter_counts.append(None)
                     estimated_names.append(None)
@@ -112,17 +120,17 @@ class MPCOrbits(qv.Table):
 
             nulls = [None] * len(self)
             return NonGravitationalParameters.from_kwargs(
-                source=["MPCQ"] * len(self),
+                source=sources,
                 model=models,
                 solution_dimension=solution_dimensions,
                 parameter_count=parameter_counts,
                 estimated_parameter_names=estimated_names,
                 A1=a1,
-                A1_sigma=nulls,
+                A1_sigma=a1_unc,
                 A2=a2,
-                A2_sigma=nulls,
+                A2_sigma=a2_unc,
                 A3=a3,
-                A3_sigma=nulls,
+                A3_sigma=a3_unc,
                 DT=nulls,
                 DT_sigma=nulls,
                 R0=nulls,

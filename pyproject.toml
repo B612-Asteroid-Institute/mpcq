@@ -24,6 +24,8 @@ license = { file = "LICENSE.md" }
 keywords = ["astronomy", "orbital mechanics", "propagation"]
 
 dependencies = [
+    # TODO: bump to the first adam_core release that includes
+    # non_gravitational_parameters (adam_core PR #201) before releasing.
     "adam_core>=0.5.1",
     "astropy",
     "google-cloud-bigquery",

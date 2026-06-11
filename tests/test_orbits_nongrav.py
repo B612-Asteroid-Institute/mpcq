@@ -27,6 +27,9 @@ def test_mpcq_orbits_maps_nongrav_parameters_into_adam_core():
         a1=[None, 1.2e-12],
         a2=[-8.7e-14, None],
         a3=[None, 3.4e-14],
+        a1_unc=[None, 2.0e-13],
+        a2_unc=[1.1e-14, None],
+        a3_unc=[None, 5.0e-15],
         h=[18.0, 19.0],
         g=[0.15, 0.25],
         created_at=Timestamp.from_mjd([60000.0, 60001.0], scale="tdb"),
@@ -57,3 +60,52 @@ def test_mpcq_orbits_maps_nongrav_parameters_into_adam_core():
         orbits.non_gravitational_parameters.A3.to_numpy(zero_copy_only=False)[1],
         3.4e-14,
     )
+    np.testing.assert_allclose(
+        orbits.non_gravitational_parameters.A2_sigma.to_numpy(zero_copy_only=False)[0],
+        1.1e-14,
+    )
+    np.testing.assert_allclose(
+        orbits.non_gravitational_parameters.A1_sigma.to_numpy(zero_copy_only=False)[1],
+        2.0e-13,
+    )
+    np.testing.assert_allclose(
+        orbits.non_gravitational_parameters.A3_sigma.to_numpy(zero_copy_only=False)[1],
+        5.0e-15,
+    )
+
+
+def test_mpcq_orbits_without_nongrav_values_stay_null():
+    mpc_orbits = MPCOrbits.from_kwargs(
+        requested_provid=["test-c"],
+        primary_designation=["test-c"],
+        id=[3],
+        provid=["test-c"],
+        epoch=Timestamp.from_mjd([60000.0], scale="tdb"),
+        q=[0.9],
+        e=[0.3],
+        i=[10.0],
+        node=[100.0],
+        argperi=[40.0],
+        peri_time=[59970.0],
+        q_unc=[0.01],
+        e_unc=[0.001],
+        i_unc=[0.1],
+        node_unc=[0.1],
+        argperi_unc=[0.1],
+        peri_time_unc=[0.5],
+        h=[20.0],
+        g=[0.15],
+        created_at=Timestamp.from_mjd([60000.0], scale="tdb"),
+        updated_at=Timestamp.from_mjd([60000.0], scale="tdb"),
+    )
+
+    orbits = mpc_orbits.orbits()
+
+    # Rows without any non-grav values must stay fully null (including
+    # source), matching adam_core's SBDB/NEOCC importers; downstream
+    # propagators treat metadata-only rows differently from null rows.
+    nongrav = orbits.non_gravitational_parameters
+    assert nongrav.source[0].as_py() is None
+    assert nongrav.model[0].as_py() is None
+    assert nongrav.solution_dimension[0].as_py() is None
+    assert nongrav.A1[0].as_py() is None
