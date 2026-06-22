@@ -24,9 +24,11 @@ license = { file = "LICENSE.md" }
 keywords = ["astronomy", "orbital mechanics", "propagation"]
 
 dependencies = [
-    # TODO: bump to the first adam_core release that includes
-    # non_gravitational_parameters (adam_core PR #201) before releasing.
-    "adam_core>=0.5.1",
+    # Depends on the non_gravitational_parameters module (adam_core PR #201),
+    # which is not yet in a tagged adam_core release. Pin to the matching
+    # development branch until it lands.
+    # TODO: switch back to "adam_core>=<release>" once PR #201 is released.
+    "adam_core @ git+https://github.com/B612-Asteroid-Institute/adam_core.git@codex/nongrav-support",
     "astropy",
     "google-cloud-bigquery",
     "google-cloud-secret-manager",
