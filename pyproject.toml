@@ -110,6 +110,14 @@ known-first-party = ["mpcq"]
 [tool.mypy]
 ignore_missing_imports = true
 
+# pyarrow ships a py.typed marker but its compute/parquet helpers are generated
+# dynamically at import time, so mypy cannot see attributes like pc.is_in or
+# pq.read_table and reports false attr-defined / no-untyped-call errors. Treat
+# the package as untyped so type checking stays stable across pyarrow versions.
+[[tool.mypy.overrides]]
+module = "pyarrow.*"
+follow_imports = "skip"
+
 [tool.pytest.ini_options]
 markers = [
     "integration: marks tests that require live BigQuery access",
