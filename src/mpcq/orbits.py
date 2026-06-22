@@ -1,3 +1,5 @@
+from typing import List, Optional
+
 import numpy as np
 import pyarrow as pa
 import quivr as qv
@@ -82,6 +84,7 @@ class MPCOrbits(qv.Table):
         orbits : Orbits
             The orbits and associated data for the given provisional designations.
         """
+
         def _nongrav_columns() -> NonGravitationalParameters:
             a1 = self.a1.to_pylist()
             a2 = self.a2.to_pylist()
@@ -90,11 +93,11 @@ class MPCOrbits(qv.Table):
             a2_unc = self.a2_unc.to_pylist()
             a3_unc = self.a3_unc.to_pylist()
 
-            sources = []
-            models = []
-            parameter_counts = []
-            estimated_names = []
-            solution_dimensions = []
+            sources: List[Optional[str]] = []
+            models: List[Optional[str]] = []
+            parameter_counts: List[Optional[int]] = []
+            estimated_names: List[Optional[str]] = []
+            solution_dimensions: List[Optional[int]] = []
             for a1_i, a2_i, a3_i in zip(a1, a2, a3):
                 names = []
                 if a1_i is not None:
