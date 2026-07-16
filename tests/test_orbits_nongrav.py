@@ -1,8 +1,7 @@
 import numpy as np
+from adam_core.time import Timestamp
 
 from mpcq.orbits import MPCOrbits
-
-from adam_core.time import Timestamp
 
 
 def test_mpcq_orbits_maps_nongrav_parameters_into_adam_core():
@@ -40,14 +39,6 @@ def test_mpcq_orbits_maps_nongrav_parameters_into_adam_core():
 
     assert len(orbits) == 2
     assert orbits.non_gravitational_parameters.source.to_pylist() == ["MPCQ", "MPCQ"]
-    assert orbits.non_gravitational_parameters.model.to_pylist() == [
-        "nongrav",
-        "nongrav",
-    ]
-    assert orbits.non_gravitational_parameters.estimated_parameter_names.to_pylist() == [
-        "A2",
-        "A1,A3",
-    ]
     np.testing.assert_allclose(
         orbits.non_gravitational_parameters.A2.to_numpy(zero_copy_only=False)[0],
         -8.7e-14,
@@ -60,18 +51,21 @@ def test_mpcq_orbits_maps_nongrav_parameters_into_adam_core():
         orbits.non_gravitational_parameters.A3.to_numpy(zero_copy_only=False)[1],
         3.4e-14,
     )
-    np.testing.assert_allclose(
-        orbits.non_gravitational_parameters.A2_sigma.to_numpy(zero_copy_only=False)[0],
-        1.1e-14,
-    )
-    np.testing.assert_allclose(
-        orbits.non_gravitational_parameters.A1_sigma.to_numpy(zero_copy_only=False)[1],
-        2.0e-13,
-    )
-    np.testing.assert_allclose(
-        orbits.non_gravitational_parameters.A3_sigma.to_numpy(zero_copy_only=False)[1],
-        5.0e-15,
-    )
+
+    # A-parameter uncertainties live in the coordinate covariance, which
+    # extends to adam_core's fixed 9x9 layout (coordinates, A1, A2, A3).
+    # The A-block diagonal is invariant under the cometary -> Cartesian
+    # transform, so the reported uncertainties can be read back directly.
+    covariance = orbits.coordinates.covariance
+    assert covariance.nongrav_block_mask().tolist() == [True, True]
+    full = covariance.to_full_matrix()
+    np.testing.assert_allclose(np.sqrt(full[0, 7, 7]), 1.1e-14)
+    np.testing.assert_allclose(np.sqrt(full[1, 6, 6]), 2.0e-13)
+    np.testing.assert_allclose(np.sqrt(full[1, 8, 8]), 5.0e-15)
+    # Parameters without a reported uncertainty are held fixed (zero rows).
+    assert np.all(full[0, 6, :] == 0.0)
+    assert np.all(full[0, 8, :] == 0.0)
+    assert np.all(full[1, 7, :] == 0.0)
 
 
 def test_mpcq_orbits_without_nongrav_values_stay_null():
@@ -102,10 +96,11 @@ def test_mpcq_orbits_without_nongrav_values_stay_null():
     orbits = mpc_orbits.orbits()
 
     # Rows without any non-grav values must stay fully null (including
-    # source), matching adam_core's SBDB/NEOCC importers; downstream
-    # propagators treat metadata-only rows differently from null rows.
+    # source), matching adam_core's SBDB/NEOCC importers, and the coordinate
+    # covariance must stay a plain 6x6 without the non-grav block.
     nongrav = orbits.non_gravitational_parameters
     assert nongrav.source[0].as_py() is None
-    assert nongrav.model[0].as_py() is None
-    assert nongrav.solution_dimension[0].as_py() is None
     assert nongrav.A1[0].as_py() is None
+    assert nongrav.A2[0].as_py() is None
+    assert nongrav.A3[0].as_py() is None
+    assert not orbits.coordinates.covariance.has_nongrav_block()

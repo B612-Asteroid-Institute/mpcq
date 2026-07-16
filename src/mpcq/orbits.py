@@ -1,9 +1,8 @@
-from typing import List, Optional
-
 import numpy as np
 import pyarrow as pa
 import quivr as qv
 from adam_core.coordinates import CometaryCoordinates, CoordinateCovariances, Origin
+from adam_core.coordinates.covariances import sigmas_to_covariances
 from adam_core.orbits import Orbits
 from adam_core.orbits.non_gravitational_parameters import NonGravitationalParameters
 from adam_core.time import Timestamp
@@ -85,75 +84,33 @@ class MPCOrbits(qv.Table):
             The orbits and associated data for the given provisional designations.
         """
 
+        a1 = self.a1.to_pylist()
+        a2 = self.a2.to_pylist()
+        a3 = self.a3.to_pylist()
+        has_nongrav = [
+            any(value is not None for value in row) for row in zip(a1, a2, a3)
+        ]
+
         def _nongrav_columns() -> NonGravitationalParameters:
-            a1 = self.a1.to_pylist()
-            a2 = self.a2.to_pylist()
-            a3 = self.a3.to_pylist()
-            a1_unc = self.a1_unc.to_pylist()
-            a2_unc = self.a2_unc.to_pylist()
-            a3_unc = self.a3_unc.to_pylist()
-
-            sources: List[Optional[str]] = []
-            models: List[Optional[str]] = []
-            parameter_counts: List[Optional[int]] = []
-            estimated_names: List[Optional[str]] = []
-            solution_dimensions: List[Optional[int]] = []
-            for a1_i, a2_i, a3_i in zip(a1, a2, a3):
-                names = []
-                if a1_i is not None:
-                    names.append("A1")
-                if a2_i is not None:
-                    names.append("A2")
-                if a3_i is not None:
-                    names.append("A3")
-                if names:
-                    sources.append("MPCQ")
-                    models.append("nongrav")
-                    parameter_counts.append(len(names))
-                    estimated_names.append(",".join(names))
-                    solution_dimensions.append(6 + len(names))
-                else:
-                    # Rows without non-grav values stay fully null, matching
-                    # the SBDB/NEOCC importers in adam_core.
-                    sources.append(None)
-                    models.append(None)
-                    parameter_counts.append(None)
-                    estimated_names.append(None)
-                    solution_dimensions.append(None)
-
-            nulls = [None] * len(self)
+            # Rows without non-grav values stay fully null, matching the
+            # SBDB/NEOCC importers in adam_core. Uncertainties live in the
+            # coordinate covariance, not here.
             return NonGravitationalParameters.from_kwargs(
-                source=sources,
-                model=models,
-                solution_dimension=solution_dimensions,
-                parameter_count=parameter_counts,
-                estimated_parameter_names=estimated_names,
+                source=["MPCQ" if present else None for present in has_nongrav],
                 A1=a1,
-                A1_sigma=a1_unc,
                 A2=a2,
-                A2_sigma=a2_unc,
                 A3=a3,
-                A3_sigma=a3_unc,
-                DT=nulls,
-                DT_sigma=nulls,
-                R0=nulls,
-                R0_sigma=nulls,
-                ALN=nulls,
-                ALN_sigma=nulls,
-                NK=nulls,
-                NK_sigma=nulls,
-                NM=nulls,
-                NM_sigma=nulls,
-                NN=nulls,
-                NN_sigma=nulls,
-                AMRAT=nulls,
-                AMRAT_sigma=nulls,
-                RHO=nulls,
-                RHO_sigma=nulls,
             )
 
-        covariances = CoordinateCovariances.from_sigmas(
-            np.array(
+        def _covariances() -> CoordinateCovariances:
+            # Element uncertainties give a diagonal covariance. Rows with
+            # non-grav values extend it to adam_core's fixed 9x9 layout
+            # (elements, A1, A2, A3): the A-parameter uncertainties sit on
+            # the trailing diagonal and parameters without a reported
+            # uncertainty are held fixed with zero variance. Rows without
+            # non-grav values keep NaN trailing dimensions, which adam_core
+            # stores as plain 6x6 covariances.
+            element_sigmas = np.array(
                 self.table.select(
                     [
                         "q_unc",
@@ -165,7 +122,27 @@ class MPCOrbits(qv.Table):
                     ]
                 )
             )
-        )
+            matrices = np.full((len(self), 9, 9), np.nan)
+            matrices[:, :6, :6] = sigmas_to_covariances(element_sigmas)
+
+            a_uncertainties = np.array(
+                [
+                    [value if value is not None else 0.0 for value in column]
+                    for column in (
+                        self.a1_unc.to_pylist(),
+                        self.a2_unc.to_pylist(),
+                        self.a3_unc.to_pylist(),
+                    )
+                ]
+            ).T
+            for index, present in enumerate(has_nongrav):
+                if present:
+                    matrices[index, 6:, :] = 0.0
+                    matrices[index, :, 6:] = 0.0
+                    matrices[index, 6:, 6:] = np.diag(a_uncertainties[index] ** 2)
+            return CoordinateCovariances.from_matrix(matrices)
+
+        covariances = _covariances()
 
         # Validate required columns for conversion
         required = [
