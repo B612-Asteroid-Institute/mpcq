@@ -5,21 +5,27 @@
 groups = ["default", "dev"]
 strategy = []
 lock_version = "4.5.0"
-content_hash = "sha256:30808184959083d5d5c87142cd560725d87aa411113ab7ae4a19aa9f0675547d"
+content_hash = "sha256:e96a406354df56843889aaaffdc43b7297d46ad73c13fc7dcbb96718ea0bf565"
 
 [[metadata.targets]]
 requires_python = ">=3.11,<3.13"
 
 [[package]]
 name = "adam-core"
-version = "0.5.1"
-summary = ""
+version = "0.5.7.dev26"
+requires_python = "<3.14,>=3.11"
+git = "https://github.com/B612-Asteroid-Institute/adam_core.git"
+ref = "codex/nongrav-support"
+revision = "4628ba438e644a37b0f69200c89542e01f6fbb8c"
+summary = "Core libraries for the ADAM platform"
 dependencies = [
     "astropy",
     "astroquery",
     "healpy",
-    "jax",
-    "jaxlib",
+    "jax; platform_system != \"Darwin\" or platform_machine != \"x86_64\"",
+    "jax<=0.4.38,>=0.4.23; platform_system == \"Darwin\" and platform_machine == \"x86_64\"",
+    "jaxlib; platform_system != \"Darwin\" or platform_machine != \"x86_64\"",
+    "jaxlib<=0.4.38,>=0.4.23; platform_system == \"Darwin\" and platform_machine == \"x86_64\"",
     "mpc-obscodes",
     "naif-de440",
     "naif-earth-itrf93",
@@ -28,20 +34,16 @@ dependencies = [
     "naif-eop-predict",
     "naif-leapseconds",
     "numba",
-    "numpy",
+    "numpy>=2.0.0",
     "pandas",
     "pdm",
-    "pyarrow",
-    "quivr",
+    "pyarrow>=13.0.0",
+    "quivr>=0.8.1",
     "ray",
     "requests",
     "scipy",
     "spiceypy",
     "timezonefinder",
-]
-files = [
-    {file = "adam_core-0.5.1-py3-none-any.whl", hash = "sha256:4505c43c8b25e95c63ffad4e9670d7ba97bfbc2e5f259ff13578a5a75905da6c"},
-    {file = "adam_core-0.5.1.tar.gz", hash = "sha256:27c10c0bad590f856e680a98b59f9887d0d2e4bf78a398086b4f7aefbe2ce04e"},
 ]
 
 [[package]]
@@ -1840,18 +1842,19 @@ files = [
 
 [[package]]
 name = "quivr"
-version = "0.8.0"
-summary = ""
+version = "0.8.1"
+requires_python = ">=3.9"
+summary = "Container library for working with tabular Arrow data"
 dependencies = [
     "mmh3",
     "numpy",
     "pandas",
     "pyarrow",
-    "typing-extensions",
+    "typing-extensions>=4.0.0",
 ]
 files = [
-    {file = "quivr-0.8.0-py3-none-any.whl", hash = "sha256:08ffa813b6b796946b85f362de91b1643e8fd63610c4a29260e60443fb02a83d"},
-    {file = "quivr-0.8.0.tar.gz", hash = "sha256:091581362f83a24f81d58304fa93e5b42504a588813da70a28be9ef3a6f9ccb4"},
+    {file = "quivr-0.8.1-py3-none-any.whl", hash = "sha256:2e4b1197a9fb5bf60966470f11bf9102680e730f7c6568e5167aaac40a81883f"},
+    {file = "quivr-0.8.1.tar.gz", hash = "sha256:ead034e6bbb07c69381ba9c05ca67140e56c0a2a78f9c96df4ff367fb4a1653f"},
 ]
 
 [[package]]

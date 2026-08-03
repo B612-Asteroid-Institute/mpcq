@@ -1,11 +1,27 @@
+import logging
+
 import numpy as np
 import pyarrow as pa
 import quivr as qv
 from adam_core.coordinates import CometaryCoordinates, CoordinateCovariances, Origin
 from adam_core.coordinates.covariances import sigmas_to_covariances
 from adam_core.orbits import Orbits
-from adam_core.orbits.non_gravitational_parameters import NonGravitationalParameters
+from adam_core.orbits.non_gravitational_parameters import (
+    MARSDEN_CONSTANT_FIELDS,
+    MARSDEN_STANDARD_CONSTANTS,
+    NonGravitationalParameters,
+)
 from adam_core.time import Timestamp
+
+logger = logging.getLogger(__name__)
+
+# The MPC orbits table reports non-gravitational accelerations (a1/a2/a3 and
+# yarkovsky) in units of 1e-10 au/d^2 -- see the mpc_orbits schema at
+# https://www.minorplanetcenter.net/mpcops/documentation/mpc-orbits/ and,
+# for a cross-check, MPC's fitted yarkovski coefficient for (523599) 2003 RM
+# (0.0205) against JPL's A2 for the same object (3.3e-12 au/d^2).
+# adam_core's canonical A1/A2/A3 are in au/d^2.
+_MPC_NONGRAV_ACCEL_SCALE = 1e-10
 
 
 class MPCOrbits(qv.Table):
@@ -84,22 +100,58 @@ class MPCOrbits(qv.Table):
             The orbits and associated data for the given provisional designations.
         """
 
-        a1 = self.a1.to_pylist()
-        a2 = self.a2.to_pylist()
-        a3 = self.a3.to_pylist()
-        has_nongrav = [
-            any(value is not None for value in row) for row in zip(a1, a2, a3)
-        ]
+        def _scaled(values: list[float | None]) -> list[float | None]:
+            return [
+                value * _MPC_NONGRAV_ACCEL_SCALE if value is not None else None for value in values
+            ]
+
+        a1 = _scaled(self.a1.to_pylist())
+        a2 = _scaled(self.a2.to_pylist())
+        a3 = _scaled(self.a3.to_pylist())
+        has_nongrav = [any(value is not None for value in row) for row in zip(a1, a2, a3)]
+
+        # Parameters outside adam_core's canonical schema are dropped with a
+        # warning, matching the SBDB/NEOCC importers: dt (Yeomans-Chodas
+        # asymmetric outgassing time offset), yarkovsky (transverse 1/r^2
+        # solutions stored outside the a1/a2/a3 columns), and srp (area/mass).
+        for name, column in (
+            ("dt", self.dt),
+            ("yarkovsky", self.yarkovsky),
+            ("srp", self.srp),
+        ):
+            dropped = [
+                provid
+                for provid, value in zip(self.provid.to_pylist(), column.to_pylist())
+                if value is not None
+            ]
+            if dropped:
+                logger.warning(
+                    "MPC orbits for %s carry unsupported non-gravitational "
+                    "parameter '%s'; dropping its values.",
+                    dropped,
+                    name,
+                )
 
         def _nongrav_columns() -> NonGravitationalParameters:
             # Rows without non-grav values stay fully null, matching the
             # SBDB/NEOCC importers in adam_core. Uncertainties live in the
-            # coordinate covariance, not here.
+            # coordinate covariance, not here. The MPC's a1/a2/a3 columns are
+            # comet-model fits (Marsden or Yeomans-Chodas), so rows carrying
+            # them are stamped with the standard Marsden g(r) constants --
+            # leaving the constants null would select the asteroid
+            # (1 au / r)^2 convention, the wrong force law for these values.
             return NonGravitationalParameters.from_kwargs(
                 source=["MPCQ" if present else None for present in has_nongrav],
                 A1=a1,
                 A2=a2,
                 A3=a3,
+                **{
+                    name: [
+                        MARSDEN_STANDARD_CONSTANTS[name] if present else None
+                        for present in has_nongrav
+                    ]
+                    for name in MARSDEN_CONSTANT_FIELDS
+                },
             )
 
         def _covariances() -> CoordinateCovariances:
@@ -129,9 +181,9 @@ class MPCOrbits(qv.Table):
                 [
                     [value if value is not None else 0.0 for value in column]
                     for column in (
-                        self.a1_unc.to_pylist(),
-                        self.a2_unc.to_pylist(),
-                        self.a3_unc.to_pylist(),
+                        _scaled(self.a1_unc.to_pylist()),
+                        _scaled(self.a2_unc.to_pylist()),
+                        _scaled(self.a3_unc.to_pylist()),
                     )
                 ]
             ).T
