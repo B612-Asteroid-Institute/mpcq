@@ -1,8 +1,9 @@
 from abc import ABC, abstractmethod
 from collections import defaultdict
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any, Iterable, Literal, Sequence, cast, no_type_check
+from typing import Any, Literal, cast, no_type_check
 
 import numpy as np
 import pyarrow as pa
@@ -344,7 +345,6 @@ class MPCClient(ABC):
         observations : MPCObservations
             The observations and associated data for the given provisional designations.
         """
-        pass
 
     @abstractmethod
     def query_orbits(
@@ -380,7 +380,6 @@ class MPCClient(ABC):
         orbits : MPCOrbits
             The orbits and associated data for the given provisional designations.
         """
-        pass
 
     @abstractmethod
     def query_submission_info(self, submission_ids: list[str]) -> MPCSubmissionResults:
@@ -398,7 +397,6 @@ class MPCClient(ABC):
         submission_info : MPCSubmissionResults
             The observation status and mapping for the given submission IDs.
         """
-        pass
 
     @abstractmethod
     def query_submission_history(self, provids: list[str]) -> MPCSubmissionHistory:
@@ -415,7 +413,6 @@ class MPCClient(ABC):
         submission_history : MPCSubmissionHistory
             The submission history for the given provisional designations.
         """
-        pass
 
     @abstractmethod
     def query_primary_objects(self, provids: list[str]) -> MPCPrimaryObjects:
@@ -433,7 +430,6 @@ class MPCClient(ABC):
         primary_objects : MPCPrimaryObjects
             The primary objects and associated data for the given provisional designations.
         """
-        pass
 
     @abstractmethod
     def cross_match_observations(
@@ -459,7 +455,6 @@ class MPCClient(ABC):
         cross_matched_mpc_observations : CrossMatchedMPCObservations
             The MPC observations that match the given ADES observations.
         """
-        pass
 
     @abstractmethod
     def find_duplicates(
@@ -487,7 +482,6 @@ class MPCClient(ABC):
             The MPC observations that are potential duplicates, with separation
             information included.
         """
-        pass
 
 
 class BigQueryMPCClient(MPCClient):
@@ -716,6 +710,9 @@ class BigQueryMPCClient(MPCClient):
             mpc_orbits.a1,
             mpc_orbits.a2,
             mpc_orbits.a3,
+            mpc_orbits.a1_unc,
+            mpc_orbits.a2_unc,
+            mpc_orbits.a3_unc,
             mpc_orbits.h,
             mpc_orbits.g,
             mpc_orbits.created_at,
@@ -757,6 +754,9 @@ class BigQueryMPCClient(MPCClient):
             a1=table["a1"],
             a2=table["a2"],
             a3=table["a3"],
+            a1_unc=table["a1_unc"],
+            a2_unc=table["a2_unc"],
+            a3_unc=table["a3_unc"],
             h=table["h"],
             g=table["g"],
             created_at=Timestamp.from_iso8601(created_at_iso, scale="utc")

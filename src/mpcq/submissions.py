@@ -1,5 +1,4 @@
 import warnings
-from typing import List
 
 import pyarrow.compute as pc
 import quivr as qv
@@ -101,7 +100,7 @@ class MPCSubmissionHistory(qv.Table):
 
 
 def infer_submission_time(
-    submission_ids: List[str], last_observation_times: Timestamp
+    submission_ids: list[str], last_observation_times: Timestamp
 ) -> Timestamp:
     """
     Infer the submission time from the submission ID and last observation time for

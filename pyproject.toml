@@ -24,7 +24,11 @@ license = { file = "LICENSE.md" }
 keywords = ["astronomy", "orbital mechanics", "propagation"]
 
 dependencies = [
-    "adam_core>=0.5.1",
+    # Depends on the non_gravitational_parameters module (adam_core PR #201),
+    # which is not yet in a tagged adam_core release. Pin to the matching
+    # development branch until it lands.
+    # TODO: switch back to "adam_core>=<release>" once PR #201 is released.
+    "adam_core @ git+https://github.com/B612-Asteroid-Institute/adam_core.git@codex/nongrav-support",
     "astropy",
     "google-cloud-bigquery",
     "google-cloud-secret-manager",
@@ -107,6 +111,14 @@ known-first-party = ["mpcq"]
 
 [tool.mypy]
 ignore_missing_imports = true
+
+# pyarrow ships a py.typed marker but its compute/parquet helpers are generated
+# dynamically at import time, so mypy cannot see attributes like pc.is_in or
+# pq.read_table and reports false attr-defined / no-untyped-call errors. Treat
+# the package as untyped so type checking stays stable across pyarrow versions.
+[[tool.mypy.overrides]]
+module = "pyarrow.*"
+follow_imports = "skip"
 
 [tool.pytest.ini_options]
 markers = [
