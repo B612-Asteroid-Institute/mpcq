@@ -6,3 +6,6 @@ dist/
 *__pycache__*
 .vscode/*
 .pdm-python
+
+# graphify knowledge-graph output (local only; never commit)
+graphify-out/

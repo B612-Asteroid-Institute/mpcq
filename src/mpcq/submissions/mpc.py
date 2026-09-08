@@ -8,6 +8,57 @@ import requests
 
 from .wamo import WAMOResults
 
+# --- obj_type: the submit form's REAL radio values ---------------------------
+# Transcribed from the verbatim <form> HTML at
+# https://minorplanetcenter.net/submit_psv (fetched 2026-08-27). ``obj_type`` is
+# a RADIO GROUP, pre-checked at ``unclassified``; the values are LOWERCASE and
+# two of them contain a SPACE. The HTML *ids* use underscores
+# (``obj_type_neo_candidate``) but the submitted VALUE is ``neo candidate``.
+#
+# This list previously existed only in a docstring, and it was invented:
+# "Unclassified", "Comet", "Asteroid", "Dwarf Planet", "Satellite", "Other" --
+# five values the form has never had and one with the wrong case. Worse, the
+# field was accepted as a parameter and then never put in the multipart body,
+# so every submission this client has ever made went out as the default.
+#
+# Why it matters: the MPC documents ``obj_type`` as the equivalent of the email
+# subject line, i.e. it picks the PROCESSING QUEUE. "Without the correct
+# keyword, tracklets could end up in a wrong or slower queue."
+# For an association of an already-designated object ``unclassified`` is
+# genuinely the right lane, so the old bug was benign; for NEOCP follow-up it
+# is fatal to timeliness, which is the entire point of NEOCP follow-up.
+OBJ_TYPES = (
+    "unclassified",
+    "neocp",
+    "neo candidate",
+    "neo",
+    "new comet",
+    "comet",
+    "tno",
+    "artsat",
+)
+
+#: The form's pre-checked radio, and the right default for a known object.
+DEFAULT_OBJ_TYPE = "unclassified"
+
+
+def validate_obj_type(object_type: str) -> str:
+    """Return ``object_type`` unchanged, or raise ``ValueError``.
+
+    Exact match, deliberately: no case folding and no underscore-to-space
+    repair. A caller holding ``"NEOCP"`` or ``"neo_candidate"`` has picked up an
+    HTML id or a display label instead of a wire value, and normalizing it
+    quietly would hide that until the MPC changes a value and the guesswork
+    starts landing in the wrong queue.
+    """
+    if object_type not in OBJ_TYPES:
+        raise ValueError(
+            f"Invalid object_type {object_type!r}. Must be one of: "
+            + ", ".join(repr(v) for v in OBJ_TYPES)
+            + " (lowercase, spaces included)."
+        )
+    return object_type
+
 
 class MPCSubmissionClient(ABC):
 
@@ -51,10 +102,20 @@ class MPCOfficialSubmissionClient(MPCSubmissionClient):
             Comment to include in the submission (this is the acknowledgement contained
             in emailed receipt)
         object_type : str, optional
-            Type of object being submitted. Default is "Unclassified".
-            Options are: "Unclassified", "Comet", "Asteroid", "Dwarf Planet", "Satellite", "Other".
-            This is used to categorize the submission in the MPC database. If not provided, "Unclassified" is used.
-            See https://minorplanetcenter.net/submit_psv for more details.
+            The form's ``obj_type`` radio value, which selects the MPC's
+            PROCESSING QUEUE (it is the programmatic equivalent of the email
+            subject line). Must be one of, exactly, lowercase, spaces included:
+            "unclassified", "neocp", "neo candidate", "neo", "new comet",
+            "comet", "tno", "artsat". Defaults to "unclassified", which is the
+            form's own pre-checked value and the correct lane for astrometry of
+            an already-designated object.
+
+            Note that ``obj_type`` alone may not be enough: the MPC documents
+            the matching keyword in the ACK text as mandatory for special
+            object types ("must have ... in the subject line or ACK") -- e.g.
+            "NEOCP" for ``neocp``, "NEO CANDIDATE" for ``neo candidate``.
+            Send both. Compose the ``comment`` accordingly.
+            See https://minorplanetcenter.net/submit_psv.
 
         Returns
         -------
@@ -66,25 +127,33 @@ class MPCOfficialSubmissionClient(MPCSubmissionClient):
         Raises
         ------
         ValueError
+            If ``object_type`` is not one of the form's values.
             If the submission ID is not found.
             If the submission fails.
         """
         if object_type is None:
-            object_type = "Unclassified"
+            object_type = DEFAULT_OBJ_TYPE
+        validate_obj_type(object_type)
 
-        files = {
-            "ack": (None, comment),
-            "ac2": (None, email),
-            "source": (None, open(file, "rb")),
-        }
-
+        # ``obj_type`` MUST be in the multipart body -- it used to be accepted
+        # as a parameter here and then dropped on the floor, which silently
+        # routed every submission into the default queue.
         submission_time = datetime.now().astimezone(timezone.utc)
-        response = requests.post(self.submission_url, files=files)
+        with open(file, "rb") as source:
+            files = {
+                "ack": (None, comment),
+                "ac2": (None, email),
+                "obj_type": (None, object_type),
+                "source": (None, source),
+            }
+            response = requests.post(self.submission_url, files=files)
         self.logger.info(f"Submission response: {response.text}")
 
         if response.status_code == 200:
             idx = response.text.find("Submission ID is")
-            if idx != 1:
+            # ``!= -1``: the old ``!= 1`` treated "marker not found" (-1) as
+            # found and sliced garbage out of the page instead of raising.
+            if idx != -1:
                 mpc_submission_id = response.text[idx + 17 : idx + 17 + 32]
                 return mpc_submission_id, submission_time
             else:
@@ -146,7 +215,7 @@ class MPCSandboxSubmissionClient(MPCSubmissionClient):
         file: str,
         email: str,
         comment: str,
-        object_type: str = "Unclassified",
+        object_type: str = DEFAULT_OBJ_TYPE,
     ) -> Tuple[str, datetime]:
         """
         Submit a PSV file to the MPC submission upload form.
@@ -161,10 +230,15 @@ class MPCSandboxSubmissionClient(MPCSubmissionClient):
             Comment to include in the submission (this is the acknowledgement contained
             in emailed receipt)
         object_type : str, optional
-            Type of object being submitted. Default is "Unclassified".
-            Options are: "Unclassified", "Comet", "Asteroid", "Dwarf Planet", "Satellite", "Other".
-            This is used to categorize the submission in the MPC database. If not provided, "Unclassified" is used.
-            See https://minorplanetcenter.net/submit_psv for more details.
+            The form's ``obj_type`` radio value -- see
+            ``MPCOfficialSubmissionClient.submit_ades``. Must be one of,
+            exactly, lowercase, spaces included: "unclassified", "neocp",
+            "neo candidate", "neo", "new comet", "comet", "tno", "artsat".
+            Defaults to "unclassified".
+
+            The sandbox is ASSUMED to accept the same field set as the
+            production form; its exact URL, terms and behaviour are not
+            publicly documented, so verify before relying on it.
 
         Returns
         -------
@@ -176,19 +250,24 @@ class MPCSandboxSubmissionClient(MPCSubmissionClient):
         Raises
         ------
         ValueError
+            If ``object_type`` is not one of the form's values.
             If the submission ID is not found.
             If the submission fails.
         """
-        files = {
-            "ack": (None, comment),
-            "ac2": (None, email),
-            "source": (None, open(file, "rb")),
-        }
+        validate_obj_type(object_type)
+
         submission_time = datetime.now(timezone.utc)
-        response = requests.post(
-            urljoin(self.submission_url, "psv/"),
-            files=files,
-        )
+        with open(file, "rb") as source:
+            files = {
+                "ack": (None, comment),
+                "ac2": (None, email),
+                "obj_type": (None, object_type),
+                "source": (None, source),
+            }
+            response = requests.post(
+                urljoin(self.submission_url, "psv/"),
+                files=files,
+            )
         self.logger.info(f"Submission response: {response.text}")
 
         if response.status_code == 200:
