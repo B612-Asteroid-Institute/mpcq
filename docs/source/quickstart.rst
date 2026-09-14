@@ -15,9 +15,7 @@ Before you can use ``mpcq``, you need to subscribe to the MPC dataset through Go
 
 1. Visit the `Main MPC Dataset <https://console.cloud.google.com/bigquery/analytics-hub/exchanges/projects/492788363398/locations/us/dataExchanges/asteroid_institute_mpc_replica_1950545e4f4/listings/asteroid_institute_mpc_replica_1950549970f>`__ listing
 2. Click "Subscribe" and create a linked dataset in your project
-3. Visit the `Clustered Views Dataset <https://console.cloud.google.com/bigquery/analytics-hub/exchanges/projects/492788363398/locations/us/dataExchanges/asteroid_institute_mpc_replica_1950545e4f4/listings/asteroid_institute_mpc_replica_views_195054bbe98>`_ listing
-4. Click "Subscribe" and create a linked dataset in your project
-5. Note the dataset IDs from your subscriptions
+3. Note the dataset ID from your subscription
 
 Initialize the Client
 -------------------
@@ -26,11 +24,8 @@ Initialize the Client
 
     from mpcq.client import BigQueryMPCClient
 
-    # Initialize the client with your subscribed dataset IDs
-    client = BigQueryMPCClient(
-        dataset_id="your_subscribed_main_dataset_id",
-        views_dataset_id="your_subscribed_views_dataset_id"
-    )
+    # Initialize the client with your subscribed dataset ID
+    client = BigQueryMPCClient(dataset_id="your_subscribed_main_dataset_id")
 
 .. warning::
    The MPC dataset in BigQuery is large, containing millions of observations and orbits. Running queries will incur Google Cloud Platform billing charges based on the amount of data scanned.

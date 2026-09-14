@@ -108,9 +108,11 @@ class TestObjTypeIsValidated:
     def test_an_invalid_value_raises_before_anything_is_posted(
         self, client, psv_file
     ):
-        with patch("mpcq.submissions.mpc.requests.post") as post:
-            with pytest.raises(ValueError, match="Invalid object_type"):
-                client.submit_ades(psv_file, "a@b.org", "ack", object_type="Asteroid")
+        with (
+            patch("mpcq.submissions.mpc.requests.post") as post,
+            pytest.raises(ValueError, match="Invalid object_type"),
+        ):
+            client.submit_ades(psv_file, "a@b.org", "ack", object_type="Asteroid")
         post.assert_not_called()
 
     def test_the_invented_docstring_values_all_raise(self, client, psv_file):

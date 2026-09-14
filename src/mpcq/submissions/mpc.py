@@ -1,7 +1,6 @@
 import logging
 from abc import ABC, abstractmethod
-from datetime import datetime, timezone
-from typing import Dict, List, Optional, Tuple
+from datetime import UTC, datetime
 from urllib.parse import urljoin
 
 import requests
@@ -87,8 +86,8 @@ class MPCOfficialSubmissionClient(MPCSubmissionClient):
         file: str,
         email: str,
         comment: str,
-        object_type: Optional[str] = None,
-    ) -> Tuple[str, datetime]:
+        object_type: str | None = None,
+    ) -> tuple[str, datetime]:
         """
         Submit a PSV file to the MPC submission upload form.
 
@@ -138,7 +137,7 @@ class MPCOfficialSubmissionClient(MPCSubmissionClient):
         # ``obj_type`` MUST be in the multipart body -- it used to be accepted
         # as a parameter here and then dropped on the floor, which silently
         # routed every submission into the default queue.
-        submission_time = datetime.now().astimezone(timezone.utc)
+        submission_time = datetime.now().astimezone(UTC)
         with open(file, "rb") as source:
             files = {
                 "ack": (None, comment),
@@ -167,7 +166,7 @@ class MPCOfficialSubmissionClient(MPCSubmissionClient):
         pass
 
     def query_wamo(
-        self, requested_values: List[str], timeout: int = 120
+        self, requested_values: list[str], timeout: int = 120
     ) -> WAMOResults:
         """
         Query the WAMO API for the requested values.
@@ -203,7 +202,7 @@ class MPCSandboxSubmissionClient(MPCSubmissionClient):
         self,
         submission_url: str,
         wamo_url: str,
-        proxies: Optional[Dict[str, str]] = None,
+        proxies: dict[str, str] | None = None,
     ):
         self.logger = logging.getLogger(__name__)
         self.submission_url = submission_url
@@ -216,7 +215,7 @@ class MPCSandboxSubmissionClient(MPCSubmissionClient):
         email: str,
         comment: str,
         object_type: str = DEFAULT_OBJ_TYPE,
-    ) -> Tuple[str, datetime]:
+    ) -> tuple[str, datetime]:
         """
         Submit a PSV file to the MPC submission upload form.
 
@@ -256,7 +255,7 @@ class MPCSandboxSubmissionClient(MPCSubmissionClient):
         """
         validate_obj_type(object_type)
 
-        submission_time = datetime.now(timezone.utc)
+        submission_time = datetime.now(UTC)
         with open(file, "rb") as source:
             files = {
                 "ack": (None, comment),
@@ -286,7 +285,7 @@ class MPCSandboxSubmissionClient(MPCSubmissionClient):
         pass
 
     def query_wamo(
-        self, requested_values: List[str], timeout: int = 120
+        self, requested_values: list[str], timeout: int = 120
     ) -> WAMOResults:
         """
         Query the WAMO API for the requested values.

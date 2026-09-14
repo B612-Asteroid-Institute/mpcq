@@ -13,14 +13,9 @@ def test_import_and_initialize_client(mocker: MockFixture) -> None:
 
     from mpcq.client import BigQueryMPCClient
 
-    # Test initialization with required dataset IDs
+    # Test initialization with required dataset ID
     dataset_id = "test_dataset"
-    views_dataset_id = "test_views_dataset"
-    client = BigQueryMPCClient(
-        dataset_id=dataset_id,
-        views_dataset_id=views_dataset_id,
-    )
+    client = BigQueryMPCClient(dataset_id=dataset_id)
 
     assert isinstance(client, BigQueryMPCClient)
     assert client.dataset_id == dataset_id
-    assert client.views_dataset_id == views_dataset_id

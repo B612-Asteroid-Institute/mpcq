@@ -192,7 +192,7 @@ def candidates_to_ades(
 
 
 def infer_submission_time(
-    submission_ids: List[str], last_observation_times: Timestamp
+    submission_ids: list[str], last_observation_times: Timestamp
 ) -> Timestamp:
     """
     Infer the submission time from the submission ID and last observation time for
@@ -228,4 +228,4 @@ def infer_submission_time(
 
         times_isot.append(submission_time)
 
-    return Timestamp.from_astropy(Time(times_isot, format="isot", scale="utc"))
+    return Timestamp.from_iso8601(times_isot, scale="utc")

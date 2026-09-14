@@ -1,5 +1,7 @@
 from abc import ABC, abstractmethod
-from typing import List
+from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import Any, Literal
 
 from adam_core.observations import ADESObservations
 
@@ -11,50 +13,107 @@ from ..submissions.types import (
 )
 
 METERS_PER_ARCSECONDS = 30.87
+ObservationColumnMode = Literal["minimal", "ades", "full"]
+OrbitColumnMode = Literal["minimal", "full"]
+
+
+@dataclass(frozen=True)
+class Where:
+    column: str
+    op: Literal[
+        "=",
+        "!=",
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "between",
+        "in",
+        "is null",
+        "is not null",
+        "startswith",
+        "endswith",
+        "contains",
+        "istartswith",
+        "iendswith",
+        "icontains",
+    ]
+    value: Any | Sequence[Any] | tuple[Any, Any] | None = None
 
 
 class MPCClient(ABC):
-
     @abstractmethod
-    def query_observations(self, provids: List[str]) -> MPCObservations:
+    def query_observations(
+        self,
+        provids: list[str] | None = None,
+        columns: list[str] | str | None = None,
+        column_mode: ObservationColumnMode = "minimal",
+        where: list[Where] | None = None,
+        limit: int | None = None,
+        dedupe: bool = True,
+    ) -> MPCObservations:
         """
         Query the MPC database for the observations and associated data for the given
         provisional designations.
 
         Parameters
         ----------
-        provids : List[str]
-            List of provisional designations to query.
+        provids : List[str] | None
+            List of provisional designations to query. Optional.
+        columns : list[str] | str | None
+            Explicit subset of columns, "*" for full schema, or None to use column_mode.
+        column_mode : Literal["minimal", "ades", "full"]
+            Default column bundle when columns is None.
+        where : list[Where] | None
+            Additional filters using allowed operators.
+        limit : int | None
+            Limit the number of rows returned. Required if both provids and where are None.
+        dedupe : bool
+            If True, use SELECT DISTINCT to deduplicate expanded-identifier joins.
 
         Returns
         -------
         observations : MPCObservations
             The observations and associated data for the given provisional designations.
         """
-        pass
 
     @abstractmethod
-    def query_orbits(self, provids: List[str]) -> MPCOrbits:
+    def query_orbits(
+        self,
+        provids: list[str] | None = None,
+        columns: list[str] | str | None = None,
+        column_mode: OrbitColumnMode = "minimal",
+        where: list[Where] | None = None,
+        limit: int | None = None,
+        dedupe: bool = True,
+    ) -> MPCOrbits:
         """
         Query the MPC database for the orbits and associated data for the given
         provisional designations.
 
         Parameters
         ----------
-        provids : List[str]
-            List of provisional designations to query.
+        provids : List[str] | None
+            List of provisional designations to query. Optional.
+        columns : list[str] | str | None
+            Explicit subset of columns, "*" for full schema, or None to use column_mode.
+        column_mode : Literal["minimal", "full"]
+            Default column bundle when columns is None.
+        where : list[Where] | None
+            Additional filters using allowed operators.
+        limit : int | None
+            Limit the number of rows returned. Required if both provids and where are None.
+        dedupe : bool
+            If True, use SELECT DISTINCT to deduplicate expanded-identifier joins.
 
         Returns
         -------
         orbits : MPCOrbits
             The orbits and associated data for the given provisional designations.
         """
-        pass
 
     @abstractmethod
-    def query_submission_results(
-        self, submission_ids: List[str]
-    ) -> MPCSubmissionResults:
+    def query_submission_results(self, submission_ids: list[str]) -> MPCSubmissionResults:
         """
         Query for observation status and mapping (observation ID to trksub, provid, etc.) for a
         given list of submission IDs.
@@ -69,10 +128,9 @@ class MPCClient(ABC):
         submission_info : MPCSubmissionResults
             The observation status and mapping for the given submission IDs.
         """
-        pass
 
     @abstractmethod
-    def query_submission_history(self, provids: List[str]) -> MPCSubmissionHistory:
+    def query_submission_history(self, provids: list[str]) -> MPCSubmissionHistory:
         """
         Query for submission history for a given list of provisional designations.
 
@@ -86,10 +144,9 @@ class MPCClient(ABC):
         submission_history : MPCSubmissionHistory
             The submission history for the given provisional designations.
         """
-        pass
 
     @abstractmethod
-    def query_primary_objects(self, provids: List[str]) -> MPCPrimaryObjects:
+    def query_primary_objects(self, provids: list[str]) -> MPCPrimaryObjects:
         """
         Query the MPC database for the primary objects and associated data for the given
         provisional designations.
@@ -104,7 +161,6 @@ class MPCClient(ABC):
         primary_objects : MPCPrimaryObjects
             The primary objects and associated data for the given provisional designations.
         """
-        pass
 
     @abstractmethod
     def cross_match_observations(
@@ -130,7 +186,6 @@ class MPCClient(ABC):
         cross_matched_mpc_observations : CrossMatchedMPCObservations
             The MPC observations that match the given ADES observations.
         """
-        pass
 
     @abstractmethod
     def find_duplicates(
@@ -158,7 +213,6 @@ class MPCClient(ABC):
             The MPC observations that are potential duplicates, with separation
             information included.
         """
-        pass
 
     @abstractmethod
     def query_submission_num_obs(self, submission_id: str) -> int:
@@ -175,4 +229,3 @@ class MPCClient(ABC):
         int
             The number of observations in the submission.
         """
-        pass

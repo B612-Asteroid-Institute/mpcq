@@ -32,8 +32,7 @@ To use ``mpcq``, you'll need to:
 4. Subscribe to the MPC datasets through Analytics Hub:
 
    a. Visit the `Main MPC Dataset <https://console.cloud.google.com/bigquery/analytics-hub/exchanges/projects/492788363398/locations/us/dataExchanges/asteroid_institute_mpc_replica_1950545e4f4/listings/asteroid_institute_mpc_replica_1950549970f>`_ listing and subscribe
-   b. Visit the `Clustered Views Dataset <https://console.cloud.google.com/bigquery/analytics-hub/exchanges/projects/492788363398/locations/us/dataExchanges/asteroid_institute_mpc_replica_1950545e4f4/listings/asteroid_institute_mpc_replica_views_195054bbe98>`_ listing and subscribe
-   c. Note the dataset IDs from your subscriptions
+   b. Note the dataset ID from your subscription
 
 5. Set up authentication:
 
@@ -46,16 +45,13 @@ To use ``mpcq``, you'll need to:
 Using the Client
 --------------
 
-After setting up authentication and subscribing to the datasets, you can initialize the client:
+After setting up authentication and subscribing to the dataset, you can initialize the client:
 
 .. code-block:: python
 
     from mpcq.client import BigQueryMPCClient
 
-    client = BigQueryMPCClient(
-        dataset_id="your_subscribed_main_dataset_id",
-        views_dataset_id="your_subscribed_views_dataset_id"
-    )
+    client = BigQueryMPCClient(dataset_id="your_subscribed_main_dataset_id")
 
 Cost Considerations
 -----------------
