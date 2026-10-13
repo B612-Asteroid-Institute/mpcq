@@ -144,7 +144,7 @@ The dataset includes several performance optimizations:
        -- Query: Count observations for specific observatories
        SELECT stn, COUNT(obsid) 
        FROM `your_dataset.public_obs_sbn` 
-        WHERE stn in ("W68", "T08", "T05", "M22") 
+        WHERE stn in ("W68", "T08", "T05", "M22", "R17") 
        GROUP BY stn;
 
 2. **Query Best Practices**:
