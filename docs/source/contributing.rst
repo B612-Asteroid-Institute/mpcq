@@ -26,6 +26,12 @@ Development Setup
 
        pdm install -G dev
 
+The committed PDM lock and ``pdm install -G dev`` cover CPython 3.11–3.13.
+They deliberately exclude 3.14 because public Core 0.7 has no CPython 3.14
+artifact. Do not use that command as a Python 3.14 setup claim; 3.14 is tested
+only by the exact Core source-wheel lane until compatible registry artifacts and
+an authorized MPCQ dependency range exist.
+
 
 Available Commands
 ---------------

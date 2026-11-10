@@ -2,40 +2,184 @@ name: Build Lint Test and Coverage
 
 on:
   push:
-    branches: [ main, "v*"]
+    branches: [main, "v*"]
   pull_request:
-    branches: [ main, "v*"]
+    branches: [main, "v*"]
+
+permissions:
+  contents: read
+
+env:
+  ADAM_CORE_PUBLIC_VERSION: "0.7.0"
+  ADAM_CORE_PYTHON314_REF: "cd4b24f923d048e8538af88dd8c24b1c10b5e770"
 
 jobs:
   build-lint-test-coverage:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12"]
+        python-version: ["3.11", "3.12", "3.13"]
     defaults:
       run:
         shell: bash -l {0}
 
     steps:
-      - name: Checkout git repo
+      - name: Checkout MPCQ
         uses: actions/checkout@v4
-      - name: Get git tags
-        run:  git fetch --prune --unshallow --tags
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: 'pip' # caching pip dependencies    
-      - name: Install Testing Dependencies
+          cache: pip
+      - name: Install exact public Core and MPCQ test dependencies
         run: |
-          pip install pip --upgrade
-          pip install ".[dev]"
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install "adam-core==$ADAM_CORE_PUBLIC_VERSION" ".[dev]"
+          python -m pip check
+      - name: Verify public dependency identity and registry-only lock
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import importlib.metadata as metadata
+          import tomllib
+          from pathlib import Path
+
+          assert metadata.version("adam-core") == "0.7.0"
+          document = tomllib.loads(Path("pdm.lock").read_text())
+          core = [item for item in document["package"] if item["name"] == "adam-core"]
+          assert len(core) == 1 and core[0]["version"] == "0.7.0"
+          assert not ({"git", "ref", "revision", "url"} & core[0].keys())
+          PY
+          pdm lock --check
+          git diff --exit-code
       - name: Lint
         run: pdm run lint
       - name: Type check
         run: pdm run typecheck
-      - name: Test with coverage
-        run: pdm run coverage
-      - name: Coverage report to coveralls
+      - name: Test the installed MPCQ wheel with coverage
+        env:
+          MPCQ_REPOSITORY_ROOT: ${{ github.workspace }}
+        run: python tests/run_installed_wheel_suite.py
+      - name: Build documentation
+        run: pdm run docs-build
+      - name: Coverage report to Coveralls
+        uses: coverallsapp/github-action@v2.0.0
+        with:
+          path-to-lcov: coverage.xml
+
+  python314-core-candidate:
+    name: Exact CPython 3.14 Core candidate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -l {0}
+    steps:
+      - name: Checkout MPCQ
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Checkout exact CPython 3.14 Core candidate
+        uses: actions/checkout@v4
+        with:
+          repository: B612-Asteroid-Institute/adam_core
+          ref: ${{ env.ADAM_CORE_PYTHON314_REF }}
+          path: .python314-pair/adam-core
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - uses: dtolnay/rust-toolchain@1.87.0
+      - name: Verify exact source and compatibility contract
+        run: |
+          set -euo pipefail
+          core=.python314-pair/adam-core
+          test "$(git -C "$core" rev-parse HEAD)" = "$ADAM_CORE_PYTHON314_REF"
+          python - <<'PY'
+          import tomllib
+          from pathlib import Path
+
+          core = Path(".python314-pair/adam-core")
+          core_project = tomllib.loads((core / "pyproject.toml").read_text())
+          core_cargo = tomllib.loads(
+              (core / "rust/adam_core_py/Cargo.toml").read_text()
+          )
+          mpcq = tomllib.loads(Path("pyproject.toml").read_text())
+          assert core_project["project"]["requires-python"] == ">=3.11,<3.15"
+          assert core_cargo["package"]["version"] == "0.7.0"
+          assert mpcq["project"]["requires-python"] == ">=3.11,<3.15"
+          requirements = mpcq["project"]["dependencies"]
+          assert "adam-core>=0.7.0,<0.8.0" in requirements
+          assert not any("git+" in requirement for requirement in requirements)
+          PY
+      - name: Build the exact Core and MPCQ wheels
+        env:
+          ADAM_CORE_BUILD_COMMIT: ${{ env.ADAM_CORE_PYTHON314_REF }}
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install "maturin==1.15.0" "packaging==25.0" "build==1.3.0"
+          core_wheelhouse="$RUNNER_TEMP/core-wheelhouse"
+          mpcq_wheelhouse="$RUNNER_TEMP/mpcq-wheelhouse"
+          mkdir -p "$core_wheelhouse" "$mpcq_wheelhouse"
+          python .python314-pair/adam-core/migration/scripts/build_release_wheel.py \
+            --out "$core_wheelhouse"
+          python -m build --wheel --outdir "$mpcq_wheelhouse"
+          test "$(find "$core_wheelhouse" -name 'adam_core-*.whl' | wc -l | tr -d ' ')" = 1
+          test "$(find "$mpcq_wheelhouse" -name 'mpcq-*.whl' | wc -l | tr -d ' ')" = 1
+      - name: Install and verify the exact wheel pair
+        run: |
+          set -euo pipefail
+          core_wheel="$(find "$RUNNER_TEMP/core-wheelhouse" -name 'adam_core-*.whl' -print -quit)"
+          mpcq_wheel="$(find "$RUNNER_TEMP/mpcq-wheelhouse" -name 'mpcq-*.whl' -print -quit)"
+          python -m pip install "$core_wheel" "${mpcq_wheel}[dev]"
+          python -m pip check
+          python - <<'PY'
+          import importlib.metadata as metadata
+          import re
+
+          import adam_core
+          import mpcq
+          from adam_core import _rust_native
+
+          distribution_version = metadata.version("adam-core")
+          native_version, native_commit = _rust_native.build_identity()
+          assert adam_core.__version__ == distribution_version == native_version == "0.7.0"
+          assert native_commit == "cd4b24f923d048e8538af88dd8c24b1c10b5e770"
+          assert re.fullmatch(r"[0-9a-f]{40}", native_commit)
+          assert metadata.version("mpcq") == mpcq.__version__
+          assert (
+              "Programming Language :: Python :: 3.14"
+              in metadata.metadata("mpcq").get_all("Classifier")
+          )
+          assert set(
+              metadata.metadata("mpcq")["Requires-Python"].replace(" ", "").split(",")
+          ) == {">=3.11", "<3.15"}
+          requirements = {
+              value.replace(" ", "").lower()
+              for value in metadata.requires("mpcq") or []
+          }
+          assert "adam-core<0.8.0,>=0.7.0" in requirements
+          PY
+      - name: Verify locks and tracked state
+        run: |
+          set -euo pipefail
+          pdm lock --check
+          git diff --exit-code
+      - name: Lint
+        run: pdm run lint
+      - name: Type check
+        run: pdm run typecheck
+      - name: Test the installed MPCQ wheel with coverage
+        env:
+          MPCQ_REPOSITORY_ROOT: ${{ github.workspace }}
+        run: python tests/run_installed_wheel_suite.py
+      - name: Build documentation
+        run: pdm run docs-build
+      - name: Coverage report to Coveralls
         uses: coverallsapp/github-action@v2.0.0
         with:
           path-to-lcov: coverage.xml

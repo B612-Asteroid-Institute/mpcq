@@ -1,7 +1,7 @@
 # mpcq
 #### A Python package by the Asteroid Institute, a program of the B612 Foundation  
 
-[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue)](https://img.shields.io/badge/Python-3.11%2B-blue)
+[![Source tested on Python 3.11–3.14](https://img.shields.io/badge/source_tested-3.11%E2%80%933.14-blue)](https://img.shields.io/badge/source_tested-3.11%E2%80%933.14-blue)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)  
 [![pip - Build, Lint, Test, and Coverage](https://github.com/B612-Asteroid-Institute/mpcq/actions/workflows/pip-build-lint-test-coverage.yml/badge.svg)](https://github.com/B612-Asteroid-Institute/mpcq/actions/workflows/pip-build-lint-test-coverage.yml)
 [![Documentation Status](https://readthedocs.org/projects/mpcq/badge/?version=latest)](https://mpcq.readthedocs.io/en/latest/?badge=latest)
@@ -36,6 +36,14 @@ Queries will be billed according to your Google Cloud Platform account's BigQuer
 ```bash
 pip install mpcq
 ```
+
+The latest published MPCQ 0.4.0 supports Python 3.11–3.12. This unreleased source
+tree is tested on CPython 3.11–3.14. Once a compatible Core successor, MPCQ
+range/version alignment, and release are separately authorized, the intended
+registry line adds Python 3.13/3.14 as applicable. Exact source-pair CI evidence
+is not a registry artifact. While the release-readiness variable is unset, the
+publication job is intentionally skipped (a fail-closed green skip, not a red
+failure).
 
 ## Quick Start
 
