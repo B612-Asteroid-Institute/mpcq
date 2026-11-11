@@ -5,9 +5,9 @@ Requirements
 -----------
 
 The latest published ``mpcq`` 0.4.0 supports Python 3.11–3.12. This unreleased
-source tree validates Python 3.11–3.14 (``>=3.11,<3.15``). Once compatible Core
-artifacts, MPCQ range/version alignment, and a release are separately authorized,
-the intended registry line adds Python 3.13/3.14 as applicable. The package has
+source tree validates Python 3.11–3.14 (``>=3.11,<3.15``) against public
+``adam-core`` 0.8 wheels in one uniform compatibility matrix. A future MPCQ
+release and version alignment remain separately authorized work. The package has
 the following core dependencies:
 
 - ``google-cloud-bigquery``
@@ -25,13 +25,14 @@ You can install ``mpcq`` using pip:
 
     pip install mpcq
 
-The source compatibility lane tests CPython 3.14 against an exact, unreleased
-``adam-core`` candidate. A normal registry or development installation on
-CPython 3.14 remains unavailable until compatible Core artifacts and a separately
-reviewed MPCQ version/dependency range exist. Source-built compatibility evidence
-does not substitute for published artifacts. While the release-readiness variable
-is unset, the publication job is intentionally skipped; this is a fail-closed
-green skip rather than a red workflow failure.
+All four source-tree compatibility rows install the released public
+``adam-core==0.8.0`` wheel and apply the same wheel, provenance, test, coverage,
+typing, documentation, lock, and clean-tree checks. Each row also installs the
+hash-pinned frozen runtime and development lock into an isolated environment
+using public binary artifacts only. This evidence does not alter the immutable
+published MPCQ 0.4.0 artifacts. While the release-readiness variable is unset,
+the publication job is intentionally skipped; this is a fail-closed green skip
+rather than a red workflow failure.
 
 Google Cloud Setup
 ----------------

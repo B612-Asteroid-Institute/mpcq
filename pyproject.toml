@@ -28,12 +28,9 @@ license = { file = "LICENSE.md" }
 keywords = ["astronomy", "orbital mechanics", "propagation"]
 
 dependencies = [
-    # Core 0.7 is the conservative public registry range exercised by CI for
-    # this migration; earlier releases are intentionally unclaimed. CPython
-    # 3.14 source compatibility is validated against an exact successor
-    # candidate, while publication remains blocked pending an authorized release
-    # and MPCQ dependency range.
-    "adam-core>=0.7.0,<0.8.0",
+    # Core 0.8 is the released registry line exercised across the complete
+    # Python support matrix. Earlier Core releases are intentionally unclaimed.
+    "adam-core>=0.8.0,<0.9.0",
     "astropy",
     "google-cloud-bigquery",
     "google-cloud-secret-manager",

@@ -23,9 +23,9 @@ on:
 jobs:
   # Publish a package to private PyPI
   publish-package:
-    # CPython 3.14 source compatibility is proven against an unreleased exact
-    # Core candidate. Keep publication fail-closed until a compatible Core
-    # release and a separately authorized MPCQ dependency/version alignment exist.
+    # Public Core artifacts now cover the source-tested Python matrix. Keep
+    # publication fail-closed until a separately authorized MPCQ version and
+    # release alignment exists; published MPCQ 0.4.0 remains immutable.
     if: ${{ vars.MPCQ_RELEASES_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     permissions:

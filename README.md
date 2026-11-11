@@ -38,12 +38,11 @@ pip install mpcq
 ```
 
 The latest published MPCQ 0.4.0 supports Python 3.11–3.12. This unreleased source
-tree is tested on CPython 3.11–3.14. Once a compatible Core successor, MPCQ
-range/version alignment, and release are separately authorized, the intended
-registry line adds Python 3.13/3.14 as applicable. Exact source-pair CI evidence
-is not a registry artifact. While the release-readiness variable is unset, the
-publication job is intentionally skipped (a fail-closed green skip, not a red
-failure).
+tree is tested on CPython 3.11–3.14 against public `adam-core` 0.8 wheels in one
+uniform compatibility matrix. A future MPCQ release and version alignment remain
+separately authorized work; source-tree evidence does not change published 0.4.0.
+While the release-readiness variable is unset, the publication job is intentionally
+skipped (a fail-closed green skip, not a red failure).
 
 ## Quick Start
 
