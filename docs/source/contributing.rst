@@ -29,8 +29,8 @@ Development Setup
 The fully refreshed PDM lock and ``pdm install -G dev --frozen-lockfile`` cover
 CPython 3.11–3.14 using released public binary artifacts. Every CI matrix row
 also exports the hash-pinned runtime and development lock into an isolated
-environment and installs it with binary-only pip resolution. MPCQ publication
-and version alignment remain separately reviewed work.
+environment and installs it with binary-only pip resolution. MPCQ releases use
+the separately reviewed exact-artifact process documented in :doc:`releasing`.
 
 
 Available Commands

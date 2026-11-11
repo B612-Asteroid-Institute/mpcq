@@ -1,57 +1,145 @@
-name: Publish package
+name: Publish accepted MPCQ artifacts
 
 on:
-  push:
-    tags:
-      - "v**"
   workflow_dispatch:
     inputs:
-      environment:
-        description: 'Environment to publish to'
-        type: choice
+      candidate_run_id:
+        description: Successful Release candidate artifacts run ID for this exact commit
         required: true
-        default: 'pypi'
-        options:
-          - pypi
-          - testpypi
-      dry_run:
-        description: 'Dry run (no actual publish)'
-        type: boolean
+        type: string
+      release_sha:
+        description: Full commit SHA referenced by the immutable v0.5.0 tag
         required: true
-        default: false
+        type: string
+      expected_version:
+        description: Exact PEP 440 release version
+        required: true
+        default: 0.5.0
+        type: string
+      confirmation:
+        description: Type "publish mpcq 0.5.0 from <sha> to PyPI"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+concurrency:
+  group: mpcq-publish-${{ inputs.expected_version }}
+  cancel-in-progress: false
+
+env:
+  MPCQ_RELEASE_VERSION: "0.5.0"
 
 jobs:
-  # Publish a package to private PyPI
-  publish-package:
-    # Public Core artifacts now cover the source-tested Python matrix. Keep
-    # publication fail-closed until a separately authorized MPCQ version and
-    # release alignment exists; published MPCQ 0.4.0 remains immutable.
+  publish-pypi:
     if: ${{ vars.MPCQ_RELEASES_ENABLED == 'true' }}
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
+    environment:
+      name: pypi
+      url: https://pypi.org/p/mpcq
     steps:
-      - name: Checkout git repository
-        uses: actions/checkout@v3
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v3
+      - name: Checkout the immutable release tag
+        uses: actions/checkout@v4
         with:
-          python-version: "3.11"
-      - name: Install PDM
-        run: pip install pdm
-      - name: Build the distribution
-        run: pdm build
-      - name: Show version to be published
-        run: pdm show --version
-      - name: Publish to PyPI
-        if: ${{ !inputs.dry_run }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Verify protected PyPI environment policy
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          environment_json="$(gh api "/repos/${GITHUB_REPOSITORY}/environments/pypi")"
+          test "$(jq -r .name <<<"$environment_json")" = pypi
+          test "$(jq -r .deployment_branch_policy.protected_branches <<<"$environment_json")" = false
+          test "$(jq -r .deployment_branch_policy.custom_branch_policies <<<"$environment_json")" = true
+          reviewer_rules="$(jq '[.protection_rules[]? | select(.type == "required_reviewers")] | length' <<<"$environment_json")"
+          reviewer_count="$(jq '[.protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]?] | length' <<<"$environment_json")"
+          test "$reviewer_rules" = 1
+          test "$reviewer_count" -gt 0
+          policies_json="$(gh api "/repos/${GITHUB_REPOSITORY}/environments/pypi/deployment-branch-policies?per_page=100")"
+          test "$(jq -r .total_count <<<"$policies_json")" = 1
+          test "$(jq -r .branch_policies[0].name <<<"$policies_json")" = "v$MPCQ_RELEASE_VERSION"
+          policy_type="$(jq -r '.branch_policies[0].type // "unspecified"' <<<"$policies_json")"
+          case "$policy_type" in tag|unspecified) ;; *) exit 1 ;; esac
+      - name: Verify tag, commit, version, and irreversible-action confirmation
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+          EXPECTED_SHA: ${{ inputs.release_sha }}
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/tags/v$MPCQ_RELEASE_VERSION"
+          test "$EXPECTED_VERSION" = "$MPCQ_RELEASE_VERSION"
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test "$(git rev-parse "v$EXPECTED_VERSION^{commit}")" = "$EXPECTED_SHA"
+          test "$CONFIRMATION" = "publish mpcq $EXPECTED_VERSION from $EXPECTED_SHA to PyPI"
+          git diff --exit-code
+          git diff --cached --exit-code
+      - name: Verify candidate-run provenance and success
+        env:
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          EXPECTED_SHA: ${{ inputs.release_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run_json="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${CANDIDATE_RUN_ID}")"
+          test "$(jq -r .conclusion <<<"$run_json")" = success
+          test "$(jq -r .head_sha <<<"$run_json")" = "$EXPECTED_SHA"
+          test "$(jq -r .name <<<"$run_json")" = "Release candidate artifacts"
+          test "$(jq -r .event <<<"$run_json")" = workflow_dispatch
+      - name: Download the exact accepted publication set
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ inputs.candidate_run_id }}
+          github-token: ${{ github.token }}
+          name: mpcq-0.5.0-candidate
+          path: candidate
+      - name: Verify accepted bytes and plan an idempotent upload
+        id: publication-state
+        env:
+          EXPECTED_SHA: ${{ inputs.release_sha }}
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
+        run: |
+          set -euo pipefail
+          python scripts/release_artifacts.py prepare-pypi \
+            --dist candidate/dist \
+            --release-sha "$EXPECTED_SHA" \
+            --version "$EXPECTED_VERSION" \
+            --manifest candidate/candidate-manifest.json \
+            --checksums candidate/SHA256SUMS \
+            --upload-dir upload-dist \
+            --state-file publication-state-before.json
+          missing_count="$(python -c 'import json; print(json.load(open("publication-state-before.json"))["missing_count"])')"
+          echo "missing_count=$missing_count" >> "$GITHUB_OUTPUT"
+          cat publication-state-before.json
+      - name: Publish only missing accepted artifacts
+        if: steps.publication-state.outputs.missing_count != '0'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          repository-url: ${{ github.event.inputs.environment == 'testpypi' && 'https://test.pypi.org/legacy/' || '' }}
-      - name: Dry run output
-        if: ${{ inputs.dry_run }}
+          packages-dir: upload-dist/
+      - name: Verify complete public release bytes
+        env:
+          EXPECTED_SHA: ${{ inputs.release_sha }}
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
         run: |
-          echo "DRY RUN - Would have published to: ${{ github.event.inputs.environment == 'testpypi' && 'https://test.pypi.org/legacy/' || 'https://pypi.org' }}"
-          echo "Distribution files that would have been published:"
-          ls dist/
+          python scripts/release_artifacts.py verify-pypi \
+            --dist candidate/dist \
+            --release-sha "$EXPECTED_SHA" \
+            --version "$EXPECTED_VERSION" \
+            --manifest candidate/candidate-manifest.json \
+            --checksums candidate/SHA256SUMS \
+            --state-file publication-state-after.json \
+            --retries 12 --retry-delay 5
+          cat publication-state-after.json
+      - name: Preserve publication verification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: mpcq-0.5.0-publication-state
+          path: publication-state-*.json
+          if-no-files-found: error
