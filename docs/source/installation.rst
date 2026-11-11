@@ -4,7 +4,11 @@ Installation
 Requirements
 -----------
 
-``mpcq`` requires Python 3.11 or later (< 3.13). The package has the following core dependencies:
+The latest published ``mpcq`` 0.4.0 supports Python 3.11–3.12. This unreleased
+source tree validates Python 3.11–3.14 (``>=3.11,<3.15``) against public
+``adam-core`` 0.8 wheels in one uniform compatibility matrix. A future MPCQ
+release and version alignment remain separately authorized work. The package has
+the following core dependencies:
 
 - ``google-cloud-bigquery``
 - ``pyarrow``
@@ -20,6 +24,15 @@ You can install ``mpcq`` using pip:
 .. code-block:: bash
 
     pip install mpcq
+
+All four source-tree compatibility rows install the released public
+``adam-core==0.8.0`` wheel and apply the same wheel, provenance, test, coverage,
+typing, documentation, lock, and clean-tree checks. Each row also installs the
+hash-pinned frozen runtime and development lock into an isolated environment
+using public binary artifacts only. This evidence does not alter the immutable
+published MPCQ 0.4.0 artifacts. While the release-readiness variable is unset,
+the publication job is intentionally skipped; this is a fail-closed green skip
+rather than a red workflow failure.
 
 Google Cloud Setup
 ----------------

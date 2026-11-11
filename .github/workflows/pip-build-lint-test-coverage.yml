@@ -2,40 +2,159 @@ name: Build Lint Test and Coverage
 
 on:
   push:
-    branches: [ main, "v*"]
+    branches: [main, "v*"]
   pull_request:
-    branches: [ main, "v*"]
+    branches: [main, "v*"]
+
+permissions:
+  contents: read
+
+env:
+  ADAM_CORE_PUBLIC_VERSION: "0.8.0"
 
 jobs:
-  build-lint-test-coverage:
+  python-support:
+    name: Python ${{ matrix.python-version }} support
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     defaults:
       run:
         shell: bash -l {0}
 
     steps:
-      - name: Checkout git repo
+      - name: Checkout MPCQ
         uses: actions/checkout@v4
-      - name: Get git tags
-        run:  git fetch --prune --unshallow --tags
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: 'pip' # caching pip dependencies    
-      - name: Install Testing Dependencies
+          cache: pip
+      - name: Build and install public wheel pair
         run: |
-          pip install pip --upgrade
-          pip install ".[dev]"
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install "build==1.3.0"
+          mpcq_wheelhouse="$RUNNER_TEMP/mpcq-wheelhouse"
+          mkdir -p "$mpcq_wheelhouse"
+          python -m build --wheel --outdir "$mpcq_wheelhouse"
+          test "$(find "$mpcq_wheelhouse" -name 'mpcq-*.whl' | wc -l | tr -d ' ')" = 1
+          mpcq_wheel="$(find "$mpcq_wheelhouse" -name 'mpcq-*.whl' -print -quit)"
+          python -m pip install "adam-core==$ADAM_CORE_PUBLIC_VERSION" "${mpcq_wheel}[dev]"
+      - name: Verify public binary Core, installed MPCQ, lock, and clean tree
+        env:
+          MATRIX_PYTHON_VERSION: ${{ matrix.python-version }}
+        run: |
+          set -euo pipefail
+          python -m pip check
+          python - <<'PY'
+          import importlib.metadata as metadata
+          import importlib.machinery
+          import os
+          import re
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          import adam_core
+          import mpcq
+          from adam_core import _rust_native
+
+          repository = Path.cwd().resolve()
+          mpcq_module = Path(mpcq.__file__).resolve()
+          distribution_root = Path(metadata.distribution("mpcq").locate_file("")).resolve()
+          native_module = Path(_rust_native.__file__).resolve()
+          native_version, native_commit = _rust_native.build_identity()
+
+          assert f"{sys.version_info.major}.{sys.version_info.minor}" == os.environ[
+              "MATRIX_PYTHON_VERSION"
+          ]
+          assert metadata.version("adam-core") == adam_core.__version__ == native_version == "0.8.0"
+          assert re.fullmatch(r"[0-9a-f]{40}", native_commit)
+          assert any(
+              native_module.name.endswith(suffix)
+              for suffix in importlib.machinery.EXTENSION_SUFFIXES
+          )
+          assert not mpcq_module.is_relative_to(repository / "src")
+          assert mpcq_module.is_relative_to(distribution_root)
+          assert metadata.version("mpcq") == mpcq.__version__
+          assert (
+              f"Programming Language :: Python :: {os.environ['MATRIX_PYTHON_VERSION']}"
+              in metadata.metadata("mpcq").get_all("Classifier")
+          )
+          assert set(
+              metadata.metadata("mpcq")["Requires-Python"].replace(" ", "").split(",")
+          ) == {">=3.11", "<3.15"}
+          requirements = {
+              value.replace(" ", "").lower()
+              for value in metadata.requires("mpcq") or []
+          }
+          assert "adam-core<0.9.0,>=0.8.0" in requirements
+
+          document = tomllib.loads(Path("pdm.lock").read_text())
+          assert document["metadata"]["targets"] == [{"requires_python": ">=3.11,<3.15"}]
+          core = [item for item in document["package"] if item["name"] == "adam-core"]
+          assert len(core) == 1 and core[0]["version"] == "0.8.0"
+          assert not ({"git", "ref", "revision", "url", "path"} & core[0].keys())
+          PY
+          pdm lock --check
+          git diff --exit-code
+      - name: Verify frozen lock from public binary artifacts
+        env:
+          MATRIX_PYTHON_VERSION: ${{ matrix.python-version }}
+        run: |
+          set -euo pipefail
+          requirements="$RUNNER_TEMP/locked-dev-requirements.txt"
+          locked_venv="$RUNNER_TEMP/locked-dev-venv"
+          pdm export --group dev --output "$requirements"
+          if grep -E '(^-e |git\+| @ (file|https?)|^--(index|extra-index|find-links))' "$requirements"; then
+            echo "Frozen lock export contains a non-registry dependency" >&2
+            exit 1
+          fi
+          python -m virtualenv "$locked_venv"
+          locked_python="$locked_venv/bin/python"
+          env -u PYTHONPATH "$locked_python" -I -m pip install --upgrade pip
+          env -u PYTHONPATH "$locked_python" -I -m pip install \
+            --only-binary=:all: --require-hashes --requirement "$requirements"
+          env -u PYTHONPATH "$locked_python" -I -m pip check
+          env -u PYTHONPATH MATRIX_PYTHON_VERSION="$MATRIX_PYTHON_VERSION" \
+            "$locked_python" -I - <<'PY'
+          import importlib.machinery
+          import importlib.metadata as metadata
+          import importlib.util
+          import os
+          import sys
+          from pathlib import Path
+
+          import adam_core
+          from adam_core import _rust_native
+
+          native_module = Path(_rust_native.__file__).resolve()
+          native_version, _ = _rust_native.build_identity()
+          assert f"{sys.version_info.major}.{sys.version_info.minor}" == os.environ[
+              "MATRIX_PYTHON_VERSION"
+          ]
+          assert metadata.version("adam-core") == adam_core.__version__ == native_version == "0.8.0"
+          assert any(
+              native_module.name.endswith(suffix)
+              for suffix in importlib.machinery.EXTENSION_SUFFIXES
+          )
+          assert importlib.util.find_spec("mpcq") is None
+          PY
       - name: Lint
         run: pdm run lint
       - name: Type check
         run: pdm run typecheck
-      - name: Test with coverage
-        run: pdm run coverage
-      - name: Coverage report to coveralls
+      - name: Test the installed MPCQ wheel with coverage
+        env:
+          MPCQ_REPOSITORY_ROOT: ${{ github.workspace }}
+        run: python tests/run_installed_wheel_suite.py
+      - name: Build documentation
+        run: pdm run docs-build
+      - name: Coverage report to Coveralls
         uses: coverallsapp/github-action@v2.0.0
         with:
           path-to-lcov: coverage.xml

@@ -23,6 +23,10 @@ on:
 jobs:
   # Publish a package to private PyPI
   publish-package:
+    # Public Core artifacts now cover the source-tested Python matrix. Keep
+    # publication fail-closed until a separately authorized MPCQ version and
+    # release alignment exists; published MPCQ 0.4.0 remains immutable.
+    if: ${{ vars.MPCQ_RELEASES_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

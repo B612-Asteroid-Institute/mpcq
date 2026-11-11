@@ -9,7 +9,7 @@ authors = [
 ]
 description = "Client library for interacting with an MPC observations database"
 readme = "README.md"
-requires-python = ">=3.11,<3.13"
+requires-python = ">=3.11,<3.15"
 classifiers = [
   "Operating System :: OS Independent",
   "Development Status :: 4 - Beta",
@@ -17,6 +17,10 @@ classifiers = [
   "License :: OSI Approved :: MIT License",
   "Programming Language :: Python",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Scientific/Engineering :: Astronomy",
 ]
 license = { file = "LICENSE.md" }
@@ -24,11 +28,9 @@ license = { file = "LICENSE.md" }
 keywords = ["astronomy", "orbital mechanics", "propagation"]
 
 dependencies = [
-    # Depends on the non_gravitational_parameters module (adam_core PR #201),
-    # which is not yet in a tagged adam_core release. Pin to the matching
-    # development branch until it lands.
-    # TODO: switch back to "adam_core>=<release>" once PR #201 is released.
-    "adam_core @ git+https://github.com/B612-Asteroid-Institute/adam_core.git@codex/nongrav-support",
+    # Core 0.8 is the released registry line exercised across the complete
+    # Python support matrix. Earlier Core releases are intentionally unclaimed.
+    "adam-core>=0.8.0,<0.9.0",
     "astropy",
     "google-cloud-bigquery",
     "google-cloud-secret-manager",
@@ -124,3 +126,14 @@ follow_imports = "skip"
 markers = [
     "integration: marks tests that require live BigQuery access",
 ]
+
+[tool.coverage.run]
+relative_files = true
+source = ["mpcq"]
+omit = ["*/mpcq/tests/*", "mpcq/tests/*"]
+
+[tool.coverage.paths]
+source = ["src/mpcq", "*/site-packages/mpcq"]
+
+[tool.coverage.report]
+omit = ["*/mpcq/tests/*", "mpcq/tests/*"]
