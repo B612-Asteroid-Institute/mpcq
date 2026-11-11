@@ -37,12 +37,11 @@ Queries will be billed according to your Google Cloud Platform account's BigQuer
 pip install mpcq
 ```
 
-The latest published MPCQ 0.4.0 supports Python 3.11–3.12. This unreleased source
-tree is tested on CPython 3.11–3.14 against public `adam-core` 0.8 wheels in one
-uniform compatibility matrix. A future MPCQ release and version alignment remain
-separately authorized work; source-tree evidence does not change published 0.4.0.
-While the release-readiness variable is unset, the publication job is intentionally
-skipped (a fail-closed green skip, not a red failure).
+Published MPCQ 0.4.0 supports Python 3.11–3.12. The reviewed MPCQ 0.5.0 release
+line supports CPython 3.11–3.14 against public `adam-core` 0.8 wheels in one
+uniform compatibility matrix. The existing 0.4.0 artifacts remain immutable;
+0.5.0 is published only by promoting the exact accepted wheel and source
+distribution from the protected, manually enabled release workflows.
 
 ## Quick Start
 

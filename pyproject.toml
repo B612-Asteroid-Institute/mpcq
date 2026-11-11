@@ -42,7 +42,7 @@ dependencies = [
 ]
 
 [build-system]
-requires = ["pdm-backend"]
+requires = ["pdm-backend==2.5.0"]
 build-backend = "pdm.backend"
 [tool.pdm.build]
 package-dir = "src"
@@ -50,7 +50,8 @@ includes = ["src/mpcq/"]
 
 [tool.pdm.version]
 source = "scm"
-write_to = "src/mpcq/_version.py"
+# write_to is relative to the wheel root; package-dir must not be repeated.
+write_to = "mpcq/_version.py"
 write_template = "__version__ = '{}'"
 
 
@@ -130,10 +131,10 @@ markers = [
 [tool.coverage.run]
 relative_files = true
 source = ["mpcq"]
-omit = ["*/mpcq/tests/*", "mpcq/tests/*"]
+omit = ["*/mpcq/tests/*", "mpcq/tests/*", "*/mpcq/_version.py", "mpcq/_version.py"]
 
 [tool.coverage.paths]
 source = ["src/mpcq", "*/site-packages/mpcq"]
 
 [tool.coverage.report]
-omit = ["*/mpcq/tests/*", "mpcq/tests/*"]
+omit = ["*/mpcq/tests/*", "mpcq/tests/*", "*/mpcq/_version.py", "mpcq/_version.py"]

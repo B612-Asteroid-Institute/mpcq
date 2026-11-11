@@ -6,8 +6,8 @@ All notable changes to ``mpcq`` will be documented in this file.
 The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.0.0/>`_,
 and this project adheres to `Semantic Versioning <https://semver.org/spec/v2.0.0.html>`_.
 
-[Unreleased]
------------
+[0.5.0] - 2026-11-11
+--------------------
 
 Added
 ^^^^^
@@ -24,12 +24,12 @@ Added
 Changed
 ^^^^^^^
 - Replaced the stale moving ``adam_core`` Git-branch dependency with released
-  ``adam-core>=0.8.0,<0.9.0`` public artifacts across Python 3.11–3.14. MPCQ
-  publication and version alignment remain separately authorized work.
+  ``adam-core>=0.8.0,<0.9.0`` public artifacts across Python 3.11–3.14.
 - Runtime/science behavior is unchanged; query, schema, uncertainty, and
   non-gravitational parameter mapping code is untouched.
-- While the release-readiness variable is unset, the publication job is
-  intentionally skipped. This is a fail-closed green skip, not a red failure.
+- Added an exact-commit candidate workflow and protected, idempotent PyPI
+  publication that promotes the accepted wheel and source distribution without
+  rebuilding them.
 
 [0.1.0] - 2024-02-14
 ------------------

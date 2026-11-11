@@ -57,6 +57,7 @@ All of the data structures can easily be converted to pandas DataFrames.
    examples
    community
    contributing
+   releasing
    changelog
 
 Getting Started

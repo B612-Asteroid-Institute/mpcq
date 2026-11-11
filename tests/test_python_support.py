@@ -55,13 +55,19 @@ def _verify_python_metadata(project: dict[str, object]) -> None:
 
 def _verify_coverage_config(project: dict[str, object]) -> None:
     coverage = project["tool"]["coverage"]
+    expected_omit = [
+        "*/mpcq/tests/*",
+        "mpcq/tests/*",
+        "*/mpcq/_version.py",
+        "mpcq/_version.py",
+    ]
     assert coverage["run"] == {
         "relative_files": True,
         "source": ["mpcq"],
-        "omit": ["*/mpcq/tests/*", "mpcq/tests/*"],
+        "omit": expected_omit,
     }
     assert coverage["paths"]["source"] == ["src/mpcq", "*/site-packages/mpcq"]
-    assert coverage["report"]["omit"] == ["*/mpcq/tests/*", "mpcq/tests/*"]
+    assert coverage["report"]["omit"] == expected_omit
 
 
 def _verify_registry_lock(document: dict[str, object]) -> None:
@@ -518,8 +524,15 @@ def _representative_semantic_workflow_mutations(workflow: str) -> dict[str, str]
 
 
 def _verify_publication_gate(workflow: str) -> None:
+    assert "workflow_dispatch:" in workflow
+    assert "push:" not in workflow
     assert "if: ${{ vars.MPCQ_RELEASES_ENABLED == 'true' }}" in workflow
+    assert "environment:" in workflow and "name: pypi" in workflow
+    assert "actions/download-artifact@v4" in workflow
+    assert "release_artifacts.py prepare-pypi" in workflow
     assert "pypa/gh-action-pypi-publish@release/v1" in workflow
+    assert "release_artifacts.py verify-pypi" in workflow
+    assert "python -m build" not in workflow and "pdm build" not in workflow
 
 
 def test_python_metadata_and_core_dependency_are_bounded() -> None:
