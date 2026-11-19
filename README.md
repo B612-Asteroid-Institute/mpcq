@@ -1,7 +1,7 @@
 # mpcq
 #### A Python package by the Asteroid Institute, a program of the B612 Foundation  
 
-[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue)](https://img.shields.io/badge/Python-3.11%2B-blue)
+[![Source tested on Python 3.11–3.14](https://img.shields.io/badge/source_tested-3.11%E2%80%933.14-blue)](https://img.shields.io/badge/source_tested-3.11%E2%80%933.14-blue)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)  
 [![pip - Build, Lint, Test, and Coverage](https://github.com/B612-Asteroid-Institute/mpcq/actions/workflows/pip-build-lint-test-coverage.yml/badge.svg)](https://github.com/B612-Asteroid-Institute/mpcq/actions/workflows/pip-build-lint-test-coverage.yml)
 [![Documentation Status](https://readthedocs.org/projects/mpcq/badge/?version=latest)](https://mpcq.readthedocs.io/en/latest/?badge=latest)
@@ -36,6 +36,12 @@ Queries will be billed according to your Google Cloud Platform account's BigQuer
 ```bash
 pip install mpcq
 ```
+
+Published MPCQ 0.4.0 supports Python 3.11–3.12. The reviewed MPCQ 0.5.0 release
+line supports CPython 3.11–3.14 against public `adam-core` 0.8 wheels in one
+uniform compatibility matrix. The existing 0.4.0 artifacts remain immutable;
+0.5.0 is published only by promoting the exact accepted wheel and source
+distribution from the protected, manually enabled release workflows.
 
 ## Quick Start
 

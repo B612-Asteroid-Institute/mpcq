@@ -1,0 +1,90 @@
+name: Release candidate artifacts
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mpcq-release-candidate-${{ github.sha }}
+  cancel-in-progress: false
+
+env:
+  MPCQ_RELEASE_VERSION: "0.5.0"
+
+jobs:
+  candidate:
+    if: ${{ vars.MPCQ_RELEASES_ENABLED == 'true' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the exact main candidate
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify exact clean candidate commit
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git diff --exit-code
+          git diff --cached --exit-code
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - name: Install pinned release build tools
+        run: python -m pip install "build==1.3.0" "twine==7.0.0"
+      - name: Build the release artifacts once from an immutable source snapshot
+        run: |
+          set -euo pipefail
+          source_root="$RUNNER_TEMP/mpcq-release-source"
+          rm -rf "$source_root" candidate
+          mkdir -p "$source_root" candidate/dist
+          git archive --format=tar "$GITHUB_SHA" | tar -xf - -C "$source_root"
+          test ! -e "$source_root/.git"
+          PDM_BUILD_SCM_VERSION="$MPCQ_RELEASE_VERSION" \
+            python -m build --sdist --wheel \
+              --outdir "$GITHUB_WORKSPACE/candidate/dist" "$source_root"
+          python -m twine check candidate/dist/*
+      - name: Create the exact candidate manifest and checksums
+        run: |
+          set -euo pipefail
+          python scripts/release_artifacts.py create \
+            --dist candidate/dist \
+            --release-sha "$GITHUB_SHA" \
+            --version "$MPCQ_RELEASE_VERSION" \
+            --manifest candidate/candidate-manifest.json \
+            --checksums candidate/SHA256SUMS
+          cat candidate/SHA256SUMS
+      - name: Test the exact accepted wheel against public Core
+        env:
+          MPCQ_REPOSITORY_ROOT: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          candidate_python="$RUNNER_TEMP/mpcq-candidate-venv/bin/python"
+          python -m venv "$RUNNER_TEMP/mpcq-candidate-venv"
+          "$candidate_python" -m pip install --upgrade pip
+          wheel="$(find candidate/dist -maxdepth 1 -name 'mpcq-*.whl' -print -quit)"
+          test -n "$wheel"
+          "$candidate_python" -m pip install "${wheel}[dev]"
+          "$candidate_python" -m pip check
+          "$candidate_python" tests/run_installed_wheel_suite.py
+      - name: Re-verify candidate bytes after testing
+        run: |
+          python scripts/release_artifacts.py verify \
+            --dist candidate/dist \
+            --release-sha "$GITHUB_SHA" \
+            --version "$MPCQ_RELEASE_VERSION" \
+            --manifest candidate/candidate-manifest.json \
+            --checksums candidate/SHA256SUMS
+      - name: Upload the exact accepted publication set
+        uses: actions/upload-artifact@v4
+        with:
+          name: mpcq-0.5.0-candidate
+          path: candidate/
+          if-no-files-found: error
+          retention-days: 30
